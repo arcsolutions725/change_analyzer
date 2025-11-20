@@ -31,6 +31,33 @@ const server = http.createServer((req, res) => {
     })
     return
   }
+  if (reqPath.startsWith('/api/symbols')) {
+    const targetUrl = 'https://api.mexc.com/api/v3/exchangeInfo'
+    https.get(targetUrl, (upstream) => {
+      const chunks = []
+      upstream.on('data', (c) => chunks.push(c))
+      upstream.on('end', () => {
+        try {
+          const body = Buffer.concat(chunks).toString('utf8')
+          const parsed = JSON.parse(body)
+          const urlObj = new URL('http://x' + req.url)
+          const quote = urlObj.searchParams.get('quote') || 'USDT'
+          const items = (parsed.symbols || []).filter(s => s.quoteAsset === quote && s.isSpotTradingAllowed)
+          const symbols = items.map(s => s.symbol)
+          const out = { quote, symbols }
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+          res.end(JSON.stringify(out))
+        } catch {
+          res.writeHead(502, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Bad Gateway' }))
+        }
+      })
+    }).on('error', () => {
+      res.writeHead(502, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Bad Gateway' }))
+    })
+    return
+  }
   const filePath = path.join(publicDir, reqPath)
   fs.readFile(filePath, (err, data) => {
     if (err) {
@@ -86,7 +113,7 @@ async function pollAndBroadcast() {
   } catch {}
 }
 
-setInterval(pollAndBroadcast, 3000)
+setInterval(pollAndBroadcast, 10000)
 // push once after startup when a client connects
 wss.on('connection', (ws) => {
   if (lastPayload) {

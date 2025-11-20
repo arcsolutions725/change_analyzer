@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MEXC Change Analyzer</title>
   <style>
-    :root { --bg:#0f1115; --fg:#e6e6e6; --muted:#9aa0a6; --green:#17c964; --red:#ef4444; --card:#141821; }
+    :root { --bg:#0f1115; --fg:#e6e6e6; --muted:#9aa0a6; --green:#17c964; --red:#ef4444; --card:#141821; --pair-w:160px; --price-w:120px; --cell-w:110px; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial; background: var(--bg); color: var(--fg); }
     header { padding: 12px 16px; border-bottom: 1px solid #1f2430; display: flex; gap: 16px; align-items: center; }
@@ -13,7 +13,7 @@
     .controls { display: flex; gap: 12px; align-items: center; color: var(--muted); }
     .controls label { font-size: 12px; }
     .container { padding: 16px; }
-    table { width: 100%; border-collapse: collapse; background: var(--card); }
+    table { border-collapse: collapse; background: var(--card); table-layout: fixed; }
     thead th { position: sticky; top: 0; background: #171b24; font-weight: 600; color: var(--muted); font-size: 12px; text-align: left; padding: 10px; border-bottom: 1px solid #1f2430; }
     tbody td { padding: 10px; border-bottom: 1px solid #1f2430; font-size: 13px; }
     td.num { text-align: right; font-feature-settings: "tnum" 1, "lnum" 1; }
@@ -25,7 +25,13 @@
     .row.flash { background: rgba(23, 201, 100, 0.08); }
     .nowrap { white-space: nowrap; }
     .small { font-size: 12px; }
-    .sticky-wrap { overflow: auto; max-height: calc(100vh - 80px); }
+    .sticky-wrap { overflow: scroll; max-height: calc(100vh - 80px); }
+    .layout { display: flex; gap: 8px; }
+    .left { flex: 0 0 auto; }
+    .right { flex: 1 1 auto;}
+    .col-pair { width: var(--pair-w); min-width: var(--pair-w); }
+    .col-price { width: var(--price-w); min-width: var(--price-w); }
+    .cell { width: var(--cell-w); min-width: var(--cell-w); }
   </style>
 </head>
 <body>
@@ -43,9 +49,9 @@
       </label>
       <label>Poll interval:
         <select id="interval">
-          <option value="3000">3s</option>
-          <option value="5000">5s</option>
           <option value="10000">10s</option>
+          <option value="20000">20s</option>
+          <option value="30000">30s</option>
         </select>
       </label>
       <span id="status" class="muted small">Idle</span>
@@ -53,24 +59,37 @@
   </header>
   <div class="container">
     <div class="sticky-wrap">
-      <table id="table">
-        <thead id="thead"></thead>
-        <tbody id="tbody"></tbody>
-      </table>
+      <div class="layout">
+        <div class="left">
+          <table id="tableLeft">
+            <thead id="theadLeft"></thead>
+            <tbody id="tbodyLeft"></tbody>
+          </table>
+        </div>
+        <div class="right">
+          <table id="tableRight">
+            <thead id="theadRight"></thead>
+            <tbody id="tbodyRight"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
   <script>
     const API = '/api/ticker24'
     const WS_PATH = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/stream'
-    const thead = document.getElementById('thead')
-    const tbody = document.getElementById('tbody')
+    const theadLeft = document.getElementById('theadLeft')
+    const tbodyLeft = document.getElementById('tbodyLeft')
+    const theadRight = document.getElementById('theadRight')
+    const tbodyRight = document.getElementById('tbodyRight')
+    let allowed = new Set()
     const statusEl = document.getElementById('status')
     const quoteFilterEl = document.getElementById('quoteFilter')
     const intervalEl = document.getElementById('interval')
 
     let timer = null
     let tick = 0
-    const maxHistory = 12
+    const maxHistory = 20
     const state = new Map()
 
     function fmtNum(v, digits = 6) {
@@ -95,10 +114,11 @@
       return symbol
     }
 
-    function buildHeader() {
-      const cols = ['Pair','Price','Change %']
-      for (let i = Math.max(0, tick - (maxHistory - 1)); i <= tick; i++) cols.push('t' + i)
-      thead.innerHTML = '<tr>' + cols.map(c => `<th class="nowrap">${c}</th>`).join('') + '</tr>'
+    function buildHeaders() {
+      theadLeft.innerHTML = '<tr>' + ['Pair','Price'].map((c,i) => `<th class="nowrap ${i===0?'col-pair':'col-price'}">${c}</th>`).join('') + '</tr>'
+      const labels = ['Change %']
+      for (let i = 1; i <= tick; i++) labels.push('t' + i)
+      theadRight.innerHTML = '<tr>' + labels.map(c => `<th class="nowrap cell">${c}</th>`).join('') + '</tr>'
     }
 
     async function fetchTickers() {
@@ -127,7 +147,7 @@
           row.pct = pct
           row.amount = amount
           row.history.push(pct)
-          if (row.history.length > maxHistory) row.history.shift()
+          // keep full history to preserve t1..tN columns
         })
         tick++
         render()
@@ -139,27 +159,40 @@
     }
 
     function render() {
-      buildHeader()
+      buildHeaders()
       const rows = Array.from(state.values())
       rows.sort((a,b) => Number(b.pct) - Number(a.pct))
-      const startIdx = Math.max(0, aTickStart())
-      const endIdx = startIdx + Math.min(maxHistory, tick + 1 - startIdx)
-      const html = rows.map(r => {
+      const historyCols = tick
+      const leftHtml = rows.map(r => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const pair = pairWithSlash(r.symbol)
-        const chips = r.history.slice(startIdx, endIdx).map(v => {
-          const c = Number(v) >= 0 ? 'pos' : 'neg'
-          return `<span class="chip ${c}">${fmtPct(v)}</span>`
-        })
-        return `<tr class="row"><td>${pair}</td><td class="num">${fmtNum(r.lastPrice)}</td><td class="num ${cls}">${fmtPct(r.pct)}</td>${histCols(chips)}</tr>`
+        return `<tr class="row"><td class="col-pair">${pair}</td><td class="num col-price">${fmtNum(r.lastPrice)}</td></tr>`
       }).join('')
-      tbody.innerHTML = html
+      const rightHtml = rows.map(r => {
+        const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
+        const cells = []
+        for (let i = 0; i < historyCols; i++) {
+          const idx = i
+          const v = idx >= 0 ? r.history[idx] : null
+          let c = 'muted'
+          let text = ''
+          if (v != null) {
+            const n = Number(v)
+            c = Number.isNaN(n) ? 'muted' : (n >= 0 ? 'pos' : 'neg')
+            text = fmtPct(v)
+          }
+          cells.push(`<td class="cell ${c}">${text}</td>`)
+        }
+        return `<tr class="row"><td class="num ${cls} cell">${fmtPct(r.pct)}</td>${cells.join('')}</tr>`
+      }).join('')
+      tbodyLeft.innerHTML = leftHtml
+      tbodyRight.innerHTML = rightHtml
     }
 
     function aTickStart() { return Math.max(0, tick - (maxHistory - 1)) }
     function histCols(chips) {
       if (!chips || chips.length === 0) return ''
-      return chips.map(p => `<td>${p}</td>`).join('')
+      return chips.map(p => `<td class="cell">${p}</td>`).join('')
     }
 
     function startPolling() {
@@ -193,8 +226,8 @@
                 row.lastPrice = lastPrice
                 row.pct = pct
                 row.amount = amount
-                row.history.push(pct)
-                if (row.history.length > maxHistory) row.history.shift()
+              row.history.push(pct)
+              // keep full history to preserve t1..tN columns
               })
               tick++
               render()
@@ -208,7 +241,7 @@
       }
     }
 
-    quoteFilterEl.addEventListener('change', () => { state.clear(); tick = 0; startPolling() })
+    quoteFilterEl.addEventListener('change', async () => { state.clear(); tick = 0; startPolling() })
     intervalEl.addEventListener('change', () => { startPolling() })
 
     startWebSocket()
