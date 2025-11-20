@@ -134,8 +134,15 @@ function connectMiniTickers() {
     try {
       const text = buf.toString('utf8')
       const msg = JSON.parse(text)
+      let items = null
       if (msg && msg.publicMiniTickers && msg.publicMiniTickers.items) {
-        const items = msg.publicMiniTickers.items
+        items = msg.publicMiniTickers.items
+      } else if (msg && msg.data && msg.data.items) {
+        items = msg.data.items
+      } else if (msg && msg.items) {
+        items = msg.items
+      }
+      if (items) {
         lastPayload = items
         const out = JSON.stringify({ type: 'miniTickers', data: items, ts: Date.now() })
         for (const client of wsClients) {

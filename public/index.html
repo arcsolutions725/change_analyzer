@@ -21,6 +21,7 @@
     .pos { color: var(--green); }
     .neg { color: var(--red); }
     .muted { color: var(--muted); }
+    .new { color: #facc15; }
     .row { transition: background 0.2s ease; }
     .row.flash { background: rgba(23, 201, 100, 0.08); }
     .row.selected { background: rgba(47, 128, 237, 0.18); }
@@ -80,6 +81,8 @@
     let timer = null
     let tick = 0
     const maxHistory = 20
+    const maxPriceHistory = 200
+    const trendWindow = 10
     const state = new Map()
     let selectedSymbol = null
 
@@ -97,6 +100,27 @@
       return (n * 100).toFixed(2) + '%'
     }
 
+    function fmtSpeed(s) {
+      const n = Number(s)
+      if (Number.isNaN(n)) return ''
+      return n.toFixed(2) + '%/m'
+    }
+
+    function computeTrend(pts) {
+      if (!pts || pts.length < trendWindow) return 0
+      const slice = pts.slice(pts.length - trendWindow)
+      const xs = slice.map((pt) => (pt.ts - slice[0].ts) / 60000)
+      const ys = slice.map((pt) => Math.log(Math.max(1e-12, pt.p)))
+      let mx = 0, my = 0
+      for (let i = 0; i < xs.length; i++) { mx += xs[i]; my += ys[i] }
+      mx /= xs.length; my /= ys.length
+      let num = 0, den = 0
+      for (let i = 0; i < xs.length; i++) { const dx = xs[i] - mx; num += dx * (ys[i] - my); den += dx * dx }
+      if (den === 0) return 0
+      const slopePerMin = num / den
+      return slopePerMin * 100
+    }
+
     function pairWithSlash(symbol) {
       const knownQuotes = ['USDT','USDC','BTC','ETH','MX','BNB']
       for (const q of knownQuotes) {
@@ -107,7 +131,7 @@
 
     function buildHeaders() {
       theadLeft.innerHTML = '<tr>' + ['Pair','Price'].map((c,i) => `<th class="nowrap ${i===0?'col-pair':'col-price'}">${c}</th>`).join('') + '</tr>'
-      const labels = ['Change %']
+      const labels = ['Trend(10)','Change %']
       for (let i = 1; i <= tick; i++) labels.push('t' + i)
       theadRight.innerHTML = '<tr>' + labels.map(c => `<th class="nowrap cell">${c}</th>`).join('') + '</tr>'
     }
@@ -127,9 +151,13 @@
           const amount = x.volume || x.quoteVolume || ''
           let row = state.get(symbol)
           if (!row) {
-            row = { symbol, lastPrice: null, pct: null, amount: null, history: [] }
+            row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0 }
             state.set(symbol, row)
           }
+          const now = Date.now()
+          row.priceHistory.push({ p: Number(lastPrice), ts: now })
+          if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
+          row.trend10 = computeTrend(row.priceHistory)
           row.lastPrice = lastPrice
           row.pct = pct
           row.amount = amount
@@ -148,7 +176,15 @@
     function render() {
       buildHeaders()
       const rows = Array.from(state.values())
-      rows.sort((a,b) => Number(b.pct) - Number(a.pct))
+      rows.sort((a,b) => {
+        const al = (a.priceHistory && a.priceHistory.length) ? a.priceHistory.length : 0
+        const bl = (b.priceHistory && b.priceHistory.length) ? b.priceHistory.length : 0
+        const aNew = al < trendWindow
+        const bNew = bl < trendWindow
+        if (aNew && !bNew) return -1
+        if (bNew && !aNew) return 1
+        return Number(b.trend10 || 0) - Number(a.trend10 || 0)
+      })
       const historyCols = tick
       const leftHtml = rows.map(r => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
@@ -157,6 +193,8 @@
       }).join('')
       const rightHtml = rows.map(r => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
+        const isNew = !(r.priceHistory && r.priceHistory.length >= trendWindow)
+        const scls = isNew ? 'new' : (Number(r.trend10) >= 0 ? 'pos' : 'neg')
         const cells = []
         for (let i = 0; i < historyCols; i++) {
           const idx = i
@@ -170,7 +208,8 @@
           }
           cells.push(`<td class="cell ${c}">${text}</td>`)
         }
-        return `<tr class="row" data-symbol="${r.symbol}"><td class="num ${cls} cell">${fmtPct(r.pct)}</td>${cells.join('')}</tr>`
+        const trendText = isNew ? 'new token' : fmtSpeed(r.trend10)
+        return `<tr class="row" data-symbol="${r.symbol}"><td class="num ${scls} cell">${trendText}</td><td class="num ${cls} cell">${fmtPct(r.pct)}</td>${cells.join('')}</tr>`
       }).join('')
       tbodyLeft.innerHTML = leftHtml
       tbodyRight.innerHTML = rightHtml
@@ -207,9 +246,13 @@
                 const amount = x.quantity || x.volume || ''
                 let row = state.get(symbol)
                 if (!row) {
-                  row = { symbol, lastPrice: null, pct: null, amount: null, history: [] }
+                  row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0 }
                   state.set(symbol, row)
                 }
+                const now = Date.now()
+                row.priceHistory.push({ p: Number(lastPrice), ts: now })
+                if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
+                row.trend10 = computeTrend(row.priceHistory)
                 row.lastPrice = lastPrice
                 row.pct = pct
                 row.amount = amount
