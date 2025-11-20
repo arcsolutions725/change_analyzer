@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MEXC Change Analyzer</title>
   <style>
-    :root { --bg:#0f1115; --fg:#e6e6e6; --muted:#9aa0a6; --green:#17c964; --red:#ef4444; --card:#141821; --pair-w:160px; --price-w:120px; --cell-w:110px; --no-w:60px; }
+    :root { --bg:#0f1115; --fg:#e6e6e6; --muted:#9aa0a6; --green:#17c964; --red:#ff0000; --card:#141821; --pair-w:160px; --price-w:120px; --cell-w:110px; --no-w:60px; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial; background: var(--bg); color: var(--fg); }
     header { padding: 12px 16px; border-bottom: 1px solid #1f2430; display: flex; gap: 16px; align-items: center; }
@@ -18,17 +18,42 @@
     tbody td { padding: 10px; border-bottom: 1px solid #1f2430; font-size: 13px; }
     td.num { text-align: right; font-feature-settings: "tnum" 1, "lnum" 1; }
     .chip { display: inline-block; padding: 2px 6px; border-radius: 6px; font-size: 12px; }
-    .pos { color: var(--green); }
+    .pos { color: var(--green); text-align: left !important; }
     .neg { color: var(--red); }
+    .num.neg { color: var(--red); text-align: left !important; }
     .muted { color: var(--muted); }
     .new { color: #facc15; }
+    .arrow-up { color: #facc15; }
+    .arrow-down { color: var(--red); }
+    .arrow-flat { color: var(--muted); }
     .toast-root { position: fixed; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
     .toast { background: #171b24; color: #facc15; border: 1px solid #2a3140; padding: 8px 12px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); transition: all 0.3s ease; }
     .toast.hide { opacity: 0; transform: translateY(-4px); }
+    .toast-close { background: transparent; border: 0; color: #facc15; margin-left: 10px; cursor: pointer; font-size: 14px; }
     .copyable { cursor: pointer; }
     .row { transition: background 0.2s ease; }
     .row.flash { background: rgba(23, 201, 100, 0.08); }
     .row.selected { background: rgba(47, 128, 237, 0.18); }
+    .row-c10 { background: hsla(120, 70%, 45%, 0.3); }
+    .row-c11 { background: hsla(132, 70%, 45%, 0.3); }
+    .row-c12 { background: hsla(144, 70%, 45%, 0.3); }
+    .row-c13 { background: hsla(156, 70%, 45%, 0.3); }
+    .row-c14 { background: hsla(168, 70%, 45%, 0.3); }
+    .row-c15 { background: hsla(180, 70%, 45%, 0.3); }
+    .row-c16 { background: hsla(192, 70%, 45%, 0.3); }
+    .row-c17 { background: hsla(204, 70%, 45%, 0.3); }
+    .row-c18 { background: hsla(216, 70%, 45%, 0.3); }
+    .row-c19 { background: hsla(228, 70%, 45%, 0.3); }
+    .row-c20 { background: hsla(240, 70%, 45%, 0.3); }
+    .row-c21 { background: hsla(252, 70%, 45%, 0.3); }
+    .row-c22 { background: hsla(264, 70%, 45%, 0.3); }
+    .row-c23 { background: hsla(276, 70%, 45%, 0.3); }
+    .row-c24 { background: hsla(288, 70%, 45%, 0.3); }
+    .row-c25 { background: hsla(300, 70%, 50%, 0.3); }
+    .row-c26 { background: hsla(312, 70%, 50%, 0.3); }
+    .row-c27 { background: hsla(324, 70%, 50%, 0.3); }
+    .row-c28 { background: hsla(336, 70%, 50%, 0.3); }
+    .row-c29 { background: hsla(348, 70%, 50%, 0.3); }
     .nowrap { white-space: nowrap; }
     .small { font-size: 12px; }
     .sticky-wrap { overflow: scroll; max-height: calc(100vh - 80px); }
@@ -95,6 +120,7 @@
     const alertedNew = new Set()
     const newBarEl = document.getElementById('newTokensBar')
     const toastRoot = document.getElementById('toastRoot')
+    let nextColor = 0
 
     function fmtNum(v, digits = 6) {
       if (v == null || v === '') return ''
@@ -134,7 +160,7 @@
     function notifyNew(symbol) {
       if (alertedNew.has(symbol)) return
       const text = pairWithSlash(symbol)
-      try { navigator.clipboard && navigator.clipboard.writeText(text) } catch {}
+      console.log("new token", text)
       statusEl.textContent = 'New ' + text + ' copied'
       alertedNew.add(symbol)
       renderNewBar()
@@ -153,10 +179,15 @@
       if (!toastRoot) return
       const el = document.createElement('div')
       el.className = 'toast'
-      el.textContent = text
+      const span = document.createElement('span')
+      span.textContent = text
+      const btn = document.createElement('button')
+      btn.className = 'toast-close'
+      btn.textContent = '×'
+      btn.addEventListener('click', () => { try { toastRoot.removeChild(el) } catch {} })
+      el.appendChild(span)
+      el.appendChild(btn)
       toastRoot.appendChild(el)
-      setTimeout(() => { el.classList.add('hide') }, 2500)
-      setTimeout(() => { try { toastRoot.removeChild(el) } catch {} }, 3200)
     }
 
     function pairWithSlash(symbol) {
@@ -165,6 +196,17 @@
         if (symbol.endsWith(q)) return symbol.slice(0, -q.length) + '/' + q
       }
       return symbol
+    }
+
+    function pairUrl(symbol) {
+      const knownQuotes = ['USDT','USDC','BTC','ETH','MX','BNB']
+      for (const q of knownQuotes) {
+        if (symbol.endsWith(q)) {
+          const base = symbol.slice(0, -q.length)
+          return 'https://www.mexc.com/exchange/' + base + '_' + q + '?_from=search_spot_trade'
+        }
+      }
+      return 'https://www.mexc.com/exchange/' + symbol + '?_from=search_spot_trade'
     }
 
     function buildHeaders() {
@@ -193,14 +235,16 @@
           const amount = x.volume || x.quoteVolume || ''
           let row = state.get(symbol)
           if (!row) {
-            row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0 }
+            row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, colorIdx: (nextColor++ % 30) }
             state.set(symbol, row)
             if (tick >= trendWindow) notifyNew(symbol)
           }
           const now = Date.now()
           row.priceHistory.push({ p: Number(lastPrice), ts: now })
           if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
+          const prevT = row.trend10
           row.trend10 = computeTrend(row.priceHistory)
+          row.prevTrend10 = prevT
           row.lastPrice = lastPrice
           row.pct = pct
           row.amount = amount
@@ -252,7 +296,15 @@
           }
           cells.push(`<td class="cell ${c}">${text}</td>`)
         }
-        const trendText = isNew ? 'new token' : fmtSpeed(r.trend10)
+        const arrowHtml = (() => {
+          if (isNew || r.prevTrend10 == null) return ''
+          const cur = Number(r.trend10)
+          const prev = Number(r.prevTrend10)
+          if (cur > prev) return '<span class="arrow-up">↑</span>'
+          if (cur < prev) return '<span class="arrow-down">↓</span>'
+          return '<span class="arrow-flat">→</span>'
+        })()
+        const trendText = isNew ? 'new token' : `${arrowHtml} ${fmtSpeed(r.trend10)}`
         return `<tr class="row" data-symbol="${r.symbol}"><td class="num ${scls} cell">${trendText}</td><td class="num ${cls} cell">${fmtPct(r.pct)}</td>${cells.join('')}</tr>`
       }).join('')
       tbodyLeft.innerHTML = leftHtml
@@ -290,14 +342,16 @@
                 const amount = x.quantity || x.volume || ''
                 let row = state.get(symbol)
                 if (!row) {
-                  row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0 }
+                  row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null }
                   state.set(symbol, row)
                   if (tick >= trendWindow) notifyNew(symbol)
                 }
                 const now = Date.now()
                 row.priceHistory.push({ p: Number(lastPrice), ts: now })
                 if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
+                const prevT = row.trend10
                 row.trend10 = computeTrend(row.priceHistory)
+                row.prevTrend10 = prevT
                 row.lastPrice = lastPrice
                 row.pct = pct
                 row.amount = amount
@@ -328,7 +382,7 @@
       const symbol = tr.getAttribute('data-symbol')
       if (!symbol) return
       setActive(symbol)
-      const text = pairWithSlash(symbol)
+      const text = pairUrl(symbol)
       try {
         navigator.clipboard && navigator.clipboard.writeText(text)
         statusEl.textContent = 'Copied ' + text
