@@ -39,15 +39,6 @@
   <header>
     <h1>MEXC Spot Mini Tickers</h1>
     <div class="controls">
-      <label>Quote filter:
-        <select id="quoteFilter">
-          <option value="ALL">ALL</option>
-          <option value="USDT">USDT</option>
-          <option value="USDC">USDC</option>
-          <option value="BTC">BTC</option>
-          <option value="ETH">ETH</option>
-        </select>
-      </label>
       <label>Poll interval:
         <select id="interval">
           <option value="10000">10s</option>
@@ -83,9 +74,7 @@
     const tbodyLeft = document.getElementById('tbodyLeft')
     const theadRight = document.getElementById('theadRight')
     const tbodyRight = document.getElementById('tbodyRight')
-    let allowed = new Set()
     const statusEl = document.getElementById('status')
-    const quoteFilterEl = document.getElementById('quoteFilter')
     const intervalEl = document.getElementById('interval')
 
     let timer = null
@@ -129,12 +118,8 @@
       try {
         const res = await fetch(API)
         const data = await res.json()
-        const quoteFilter = quoteFilterEl.value
         const items = Array.isArray(data) ? data : [data]
-        const filtered = items.filter(x => {
-          if (quoteFilter === 'ALL') return true
-          return x.symbol.endsWith(quoteFilter)
-        })
+        const filtered = items.filter(x => x.symbol.endsWith('USDT'))
         filtered.forEach(x => {
           const symbol = x.symbol
           const lastPrice = x.lastPrice
@@ -213,9 +198,8 @@
             const msg = JSON.parse(ev.data)
             if (msg.type === 'miniTickers') {
               const data = msg.data
-              const quoteFilter = quoteFilterEl.value
               const items = Array.isArray(data) ? data : [data]
-              const filtered = items.filter(x => quoteFilter === 'ALL' ? true : x.symbol.endsWith(quoteFilter))
+              const filtered = items.filter(x => x.symbol.endsWith('USDT'))
               filtered.forEach(x => {
                 const symbol = x.symbol
                 const lastPrice = x.price
@@ -261,10 +245,10 @@
     tbodyLeft.addEventListener('click', onRowClick)
     tbodyRight.addEventListener('click', onRowClick)
 
-    quoteFilterEl.addEventListener('change', async () => { state.clear(); tick = 0; startPolling() })
     intervalEl.addEventListener('change', () => { startPolling() })
 
     startWebSocket()
+    startPolling()
   </script>
 </body>
 </html>
