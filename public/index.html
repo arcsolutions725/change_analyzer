@@ -290,16 +290,11 @@
       const symbol = tr.getAttribute('data-symbol')
       if (!symbol) return
       setActive(symbol)
-      const pairCell = e.target.closest('td.col-pair')
-      if (pairCell) {
-        const text = (pairCell.getAttribute('data-pair') || pairCell.textContent || '').trim()
-        if (text) {
-          try {
-            navigator.clipboard && navigator.clipboard.writeText(text)
-            statusEl.textContent = 'Copied ' + text
-          } catch {}
-        }
-      }
+      const text = pairWithSlash(symbol)
+      try {
+        navigator.clipboard && navigator.clipboard.writeText(text)
+        statusEl.textContent = 'Copied ' + text
+      } catch {}
     }
 
     tbodyLeft.addEventListener('click', onRowClick)
