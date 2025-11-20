@@ -61,6 +61,7 @@
   </div>
   <script>
     const API = '/api/ticker24'
+    const WS_PATH = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/stream'
     const thead = document.getElementById('thead')
     const tbody = document.getElementById('tbody')
     const statusEl = document.getElementById('status')
@@ -146,20 +147,19 @@
       const html = rows.map(r => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const pair = pairWithSlash(r.symbol)
-        const hist = r.history.slice(startIdx, endIdx).map(v => {
+        const chips = r.history.slice(startIdx, endIdx).map(v => {
           const c = Number(v) >= 0 ? 'pos' : 'neg'
           return `<span class="chip ${c}">${fmtPct(v)}</span>`
-        }).join(' ')
-        return `<tr class="row"><td>${pair}</td><td class="num">${fmtNum(r.lastPrice)}</td><td class="num ${cls}"><div class="nowrap">${fmtPct(r.pct)}</div><div class="muted small">${fmtNum(r.amount)}</div></td>${histCols(hist)}</tr>`
+        })
+        return `<tr class="row"><td>${pair}</td><td class="num">${fmtNum(r.lastPrice)}</td><td class="num ${cls}">${fmtPct(r.pct)}</td>${histCols(chips)}</tr>`
       }).join('')
       tbody.innerHTML = html
     }
 
     function aTickStart() { return Math.max(0, tick - (maxHistory - 1)) }
-    function histCols(inner) {
-      if (!inner) return ''
-      const parts = inner.split(' ')
-      return parts.map(p => `<td>${p}</td>`).join('')
+    function histCols(chips) {
+      if (!chips || chips.length === 0) return ''
+      return chips.map(p => `<td>${p}</td>`).join('')
     }
 
     function startPolling() {
@@ -168,10 +168,50 @@
       timer = setInterval(fetchTickers, Number(intervalEl.value))
     }
 
+    function startWebSocket() {
+      try {
+        const ws = new WebSocket(WS_PATH)
+        ws.onopen = () => { statusEl.textContent = 'Streaming' }
+        ws.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(ev.data)
+            if (msg.type === 'ticker24') {
+              const data = msg.data
+              const quoteFilter = quoteFilterEl.value
+              const items = Array.isArray(data) ? data : [data]
+              const filtered = items.filter(x => quoteFilter === 'ALL' ? true : x.symbol.endsWith(quoteFilter))
+              filtered.forEach(x => {
+                const symbol = x.symbol
+                const lastPrice = x.lastPrice
+                const pct = x.priceChangePercent
+                const amount = x.volume || x.quoteVolume || ''
+                let row = state.get(symbol)
+                if (!row) {
+                  row = { symbol, lastPrice: null, pct: null, amount: null, history: [] }
+                  state.set(symbol, row)
+                }
+                row.lastPrice = lastPrice
+                row.pct = pct
+                row.amount = amount
+                row.history.push(pct)
+                if (row.history.length > maxHistory) row.history.shift()
+              })
+              tick++
+              render()
+            }
+          } catch {}
+        }
+        ws.onclose = () => { statusEl.textContent = 'Disconnected'; startPolling() }
+        ws.onerror = () => { statusEl.textContent = 'WS Error'; startPolling() }
+      } catch {
+        startPolling()
+      }
+    }
+
     quoteFilterEl.addEventListener('change', () => { state.clear(); tick = 0; startPolling() })
     intervalEl.addEventListener('change', () => { startPolling() })
 
-    startPolling()
+    startWebSocket()
   </script>
 </body>
 </html>

@@ -1,5 +1,6 @@
 import http from 'http'
 import https from 'https'
+import { WebSocketServer } from 'ws'
 import fs from 'fs'
 import path from 'path'
 import url from 'url'
@@ -51,4 +52,44 @@ const server = http.createServer((req, res) => {
 
 server.listen(port, () => {
   console.log(`Server running at http://localhost:${port}/`)
+})
+
+// Local WebSocket broadcasting REST ticker updates
+const wss = new WebSocketServer({ server, path: '/stream' })
+let wsClients = new Set()
+wss.on('connection', (ws) => {
+  wsClients.add(ws)
+  ws.on('close', () => wsClients.delete(ws))
+})
+
+async function fetchJson(urlStr) {
+  return new Promise((resolve, reject) => {
+    https.get(urlStr, (up) => {
+      const chunks = []
+      up.on('data', c => chunks.push(c))
+      up.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))) } catch (e) { reject(e) }
+      })
+    }).on('error', reject)
+  })
+}
+
+let lastPayload = null
+async function pollAndBroadcast() {
+  try {
+    const payload = await fetchJson('https://api.mexc.com/api/v3/ticker/24hr')
+    lastPayload = payload
+    const msg = JSON.stringify({ type: 'ticker24', data: payload, ts: Date.now() })
+    for (const ws of wsClients) {
+      if (ws.readyState === ws.OPEN) ws.send(msg)
+    }
+  } catch {}
+}
+
+setInterval(pollAndBroadcast, 3000)
+// push once after startup when a client connects
+wss.on('connection', (ws) => {
+  if (lastPayload) {
+    ws.send(JSON.stringify({ type: 'ticker24', data: lastPayload, ts: Date.now() }))
+  }
 })
