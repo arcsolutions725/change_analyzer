@@ -87,6 +87,7 @@
     const trendWindow = 10
     const state = new Map()
     let selectedSymbol = null
+    const alertedNew = new Set()
 
     function fmtNum(v, digits = 6) {
       if (v == null || v === '') return ''
@@ -121,6 +122,15 @@
       if (den === 0) return 0
       const slopePerMin = num / den
       return slopePerMin * 100
+    }
+
+    function notifyNew(symbol) {
+      if (alertedNew.has(symbol)) return
+      const text = pairWithSlash(symbol)
+      try { navigator.clipboard && navigator.clipboard.writeText(text) } catch {}
+      alert('New token: ' + text)
+      statusEl.textContent = 'New ' + text + ' copied'
+      alertedNew.add(symbol)
     }
 
     function pairWithSlash(symbol) {
@@ -159,6 +169,7 @@
           if (!row) {
             row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0 }
             state.set(symbol, row)
+            if (tick >= trendWindow) notifyNew(symbol)
           }
           const now = Date.now()
           row.priceHistory.push({ p: Number(lastPrice), ts: now })
@@ -185,8 +196,8 @@
       rows.sort((a,b) => {
         const al = (a.priceHistory && a.priceHistory.length) ? a.priceHistory.length : 0
         const bl = (b.priceHistory && b.priceHistory.length) ? b.priceHistory.length : 0
-        const aNew = al < trendWindow
-        const bNew = bl < trendWindow
+        const aNew = (tick >= trendWindow) && (al < trendWindow)
+        const bNew = (tick >= trendWindow) && (bl < trendWindow)
         if (aNew && !bNew) return -1
         if (bNew && !aNew) return 1
         return Number(b.trend10 || 0) - Number(a.trend10 || 0)
@@ -200,7 +211,7 @@
       }).join('')
       const rightHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
-        const isNew = !(r.priceHistory && r.priceHistory.length >= trendWindow)
+        const isNew = (tick >= trendWindow) && !(r.priceHistory && r.priceHistory.length >= trendWindow)
         const scls = isNew ? 'new' : (Number(r.trend10) >= 0 ? 'pos' : 'neg')
         const cells = []
         for (let i = 0; i < historyCols; i++) {
@@ -255,6 +266,7 @@
                 if (!row) {
                   row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0 }
                   state.set(symbol, row)
+                  if (tick >= trendWindow) notifyNew(symbol)
                 }
                 const now = Date.now()
                 row.priceHistory.push({ p: Number(lastPrice), ts: now })
