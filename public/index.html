@@ -80,7 +80,7 @@
 
     let timer = null
     let tick = 0
-    const maxHistory = 20
+    const maxHistory = 30
     const maxPriceHistory = 200
     const trendWindow = 10
     const state = new Map()
@@ -132,7 +132,8 @@
     function buildHeaders() {
       theadLeft.innerHTML = '<tr>' + ['Pair','Price'].map((c,i) => `<th class="nowrap ${i===0?'col-pair':'col-price'}">${c}</th>`).join('') + '</tr>'
       const labels = ['Trend(10)','Change %']
-      for (let i = 1; i <= tick; i++) labels.push('t' + i)
+      const histCount = Math.min(maxHistory, tick)
+      for (let i = histCount; i >= 1; i--) labels.push('t' + i)
       theadRight.innerHTML = '<tr>' + labels.map(c => `<th class="nowrap cell">${c}</th>`).join('') + '</tr>'
     }
 
@@ -162,7 +163,7 @@
           row.pct = pct
           row.amount = amount
           row.history.push(pct)
-          // keep full history to preserve t1..tN columns
+          if (row.history.length > maxHistory) row.history.shift()
         })
         tick++
         render()
@@ -185,7 +186,7 @@
         if (bNew && !aNew) return 1
         return Number(b.trend10 || 0) - Number(a.trend10 || 0)
       })
-      const historyCols = tick
+      const historyCols = Math.min(maxHistory, tick)
       const leftHtml = rows.map(r => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const pair = pairWithSlash(r.symbol)
@@ -197,7 +198,7 @@
         const scls = isNew ? 'new' : (Number(r.trend10) >= 0 ? 'pos' : 'neg')
         const cells = []
         for (let i = 0; i < historyCols; i++) {
-          const idx = i
+          const idx = r.history.length - 1 - i
           const v = idx >= 0 ? r.history[idx] : null
           let c = 'muted'
           let text = ''
@@ -257,7 +258,7 @@
                 row.pct = pct
                 row.amount = amount
                 row.history.push(pct)
-                // keep full history to preserve t1..tN columns
+                if (row.history.length > maxHistory) row.history.shift()
               })
               tick++
               render()
