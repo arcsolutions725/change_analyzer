@@ -22,6 +22,9 @@
     .neg { color: var(--red); }
     .muted { color: var(--muted); }
     .new { color: #facc15; }
+    .toast-root { position: fixed; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; }
+    .toast { background: #171b24; color: #facc15; border: 1px solid #2a3140; padding: 8px 12px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); transition: all 0.3s ease; }
+    .toast.hide { opacity: 0; transform: translateY(-4px); }
     .copyable { cursor: pointer; }
     .row { transition: background 0.2s ease; }
     .row.flash { background: rgba(23, 201, 100, 0.08); }
@@ -52,7 +55,9 @@
       <span id="status" class="muted small">Idle</span>
     </div>
   </header>
+  <div class="toast-root" id="toastRoot"></div>
   <div class="container">
+    <div id="newTokensBar" class="small" style="margin:8px 0 12px 0;"></div>
     <div class="sticky-wrap">
       <div class="layout">
         <div class="left">
@@ -88,6 +93,8 @@
     const state = new Map()
     let selectedSymbol = null
     const alertedNew = new Set()
+    const newBarEl = document.getElementById('newTokensBar')
+    const toastRoot = document.getElementById('toastRoot')
 
     function fmtNum(v, digits = 6) {
       if (v == null || v === '') return ''
@@ -128,9 +135,28 @@
       if (alertedNew.has(symbol)) return
       const text = pairWithSlash(symbol)
       try { navigator.clipboard && navigator.clipboard.writeText(text) } catch {}
-      alert('New token: ' + text)
       statusEl.textContent = 'New ' + text + ' copied'
       alertedNew.add(symbol)
+      renderNewBar()
+      showToast('New token: ' + text + ' copied')
+    }
+
+    function renderNewBar() {
+      if (!newBarEl) return
+      if (alertedNew.size === 0) { newBarEl.textContent = ''; return }
+      const items = Array.from(alertedNew)
+      const chips = items.map(s => `<span class="chip new">${pairWithSlash(s)}</span>`).join(' ')
+      newBarEl.innerHTML = `<span class="new">New tokens:</span> ${chips}`
+    }
+
+    function showToast(text) {
+      if (!toastRoot) return
+      const el = document.createElement('div')
+      el.className = 'toast'
+      el.textContent = text
+      toastRoot.appendChild(el)
+      setTimeout(() => { el.classList.add('hide') }, 2500)
+      setTimeout(() => { try { toastRoot.removeChild(el) } catch {} }, 3200)
     }
 
     function pairWithSlash(symbol) {
