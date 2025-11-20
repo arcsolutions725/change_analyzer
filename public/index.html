@@ -208,16 +208,16 @@
         ws.onmessage = (ev) => {
           try {
             const msg = JSON.parse(ev.data)
-            if (msg.type === 'ticker24') {
+            if (msg.type === 'miniTickers') {
               const data = msg.data
               const quoteFilter = quoteFilterEl.value
               const items = Array.isArray(data) ? data : [data]
               const filtered = items.filter(x => quoteFilter === 'ALL' ? true : x.symbol.endsWith(quoteFilter))
               filtered.forEach(x => {
                 const symbol = x.symbol
-                const lastPrice = x.lastPrice
-                const pct = x.priceChangePercent
-                const amount = x.volume || x.quoteVolume || ''
+                const lastPrice = x.price
+                const pct = (x.zonedRate ?? x.rate)
+                const amount = x.quantity || x.volume || ''
                 let row = state.get(symbol)
                 if (!row) {
                   row = { symbol, lastPrice: null, pct: null, amount: null, history: [] }
@@ -226,8 +226,8 @@
                 row.lastPrice = lastPrice
                 row.pct = pct
                 row.amount = amount
-              row.history.push(pct)
-              // keep full history to preserve t1..tN columns
+                row.history.push(pct)
+                // keep full history to preserve t1..tN columns
               })
               tick++
               render()

@@ -1,6 +1,7 @@
 import http from 'http'
 import https from 'https'
 import { WebSocketServer } from 'ws'
+import WebSocket from 'ws'
 import fs from 'fs'
 import path from 'path'
 import url from 'url'
@@ -120,3 +121,36 @@ wss.on('connection', (ws) => {
     ws.send(JSON.stringify({ type: 'ticker24', data: lastPayload, ts: Date.now() }))
   }
 })
+
+function connectMiniTickers() {
+  const upstream = new WebSocket('wss://wbs.mexc.com/ws')
+  let pingTimer = null
+  upstream.on('open', () => {
+    const sub = { method: 'SUBSCRIPTION', params: [ 'spot@public.miniTickers.v3.api@UTC+8' ] }
+    upstream.send(JSON.stringify(sub))
+    pingTimer = setInterval(() => { try { upstream.ping() } catch {} }, 20000)
+  })
+  upstream.on('message', (buf) => {
+    try {
+      const text = buf.toString('utf8')
+      const msg = JSON.parse(text)
+      if (msg && msg.publicMiniTickers && msg.publicMiniTickers.items) {
+        const items = msg.publicMiniTickers.items
+        lastPayload = items
+        const out = JSON.stringify({ type: 'miniTickers', data: items, ts: Date.now() })
+        for (const client of wsClients) {
+          if (client.readyState === client.OPEN) client.send(out)
+        }
+      }
+    } catch {}
+  })
+  upstream.on('close', () => {
+    if (pingTimer) clearInterval(pingTimer)
+    setTimeout(connectMiniTickers, 2000)
+  })
+  upstream.on('error', () => {
+    if (pingTimer) clearInterval(pingTimer)
+  })
+}
+
+connectMiniTickers()
