@@ -22,6 +22,7 @@
     .neg { color: var(--red); }
     .muted { color: var(--muted); }
     .new { color: #facc15; }
+    .copyable { cursor: pointer; }
     .row { transition: background 0.2s ease; }
     .row.flash { background: rgba(23, 201, 100, 0.08); }
     .row.selected { background: rgba(47, 128, 237, 0.18); }
@@ -195,7 +196,7 @@
       const leftHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const pair = pairWithSlash(r.symbol)
-        return `<tr class="row" data-symbol="${r.symbol}"><td class="num col-no">${i+1}</td><td class="col-pair">${pair}</td><td class="num col-price">${fmtNum(r.lastPrice)}</td></tr>`
+        return `<tr class="row" data-symbol="${r.symbol}"><td class="num col-no">${i+1}</td><td class="col-pair copyable" data-pair="${pair}" title="Click to copy">${pair}</td><td class="num col-price">${fmtNum(r.lastPrice)}</td></tr>`
       }).join('')
       const rightHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
@@ -289,6 +290,16 @@
       const symbol = tr.getAttribute('data-symbol')
       if (!symbol) return
       setActive(symbol)
+      const pairCell = e.target.closest('td.col-pair')
+      if (pairCell) {
+        const text = (pairCell.getAttribute('data-pair') || pairCell.textContent || '').trim()
+        if (text) {
+          try {
+            navigator.clipboard && navigator.clipboard.writeText(text)
+            statusEl.textContent = 'Copied ' + text
+          } catch {}
+        }
+      }
     }
 
     tbodyLeft.addEventListener('click', onRowClick)
