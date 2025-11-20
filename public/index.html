@@ -23,6 +23,7 @@
     .muted { color: var(--muted); }
     .row { transition: background 0.2s ease; }
     .row.flash { background: rgba(23, 201, 100, 0.08); }
+    .row.selected { background: rgba(47, 128, 237, 0.18); }
     .nowrap { white-space: nowrap; }
     .small { font-size: 12px; }
     .sticky-wrap { overflow: scroll; max-height: calc(100vh - 80px); }
@@ -91,6 +92,7 @@
     let tick = 0
     const maxHistory = 20
     const state = new Map()
+    let selectedSymbol = null
 
     function fmtNum(v, digits = 6) {
       if (v == null || v === '') return ''
@@ -166,7 +168,7 @@
       const leftHtml = rows.map(r => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const pair = pairWithSlash(r.symbol)
-        return `<tr class="row"><td class="col-pair">${pair}</td><td class="num col-price">${fmtNum(r.lastPrice)}</td></tr>`
+        return `<tr class="row" data-symbol="${r.symbol}"><td class="col-pair">${pair}</td><td class="num col-price">${fmtNum(r.lastPrice)}</td></tr>`
       }).join('')
       const rightHtml = rows.map(r => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
@@ -183,10 +185,11 @@
           }
           cells.push(`<td class="cell ${c}">${text}</td>`)
         }
-        return `<tr class="row"><td class="num ${cls} cell">${fmtPct(r.pct)}</td>${cells.join('')}</tr>`
+        return `<tr class="row" data-symbol="${r.symbol}"><td class="num ${cls} cell">${fmtPct(r.pct)}</td>${cells.join('')}</tr>`
       }).join('')
       tbodyLeft.innerHTML = leftHtml
       tbodyRight.innerHTML = rightHtml
+      if (selectedSymbol) setActive(selectedSymbol)
     }
 
     function aTickStart() { return Math.max(0, tick - (maxHistory - 1)) }
@@ -240,6 +243,23 @@
         startPolling()
       }
     }
+
+    function setActive(symbol) {
+      selectedSymbol = symbol
+      document.querySelectorAll('tr.row.selected').forEach(el => el.classList.remove('selected'))
+      document.querySelectorAll(`tr.row[data-symbol="${symbol}"]`).forEach(el => el.classList.add('selected'))
+    }
+
+    function onRowClick(e) {
+      const tr = e.target.closest('tr.row')
+      if (!tr) return
+      const symbol = tr.getAttribute('data-symbol')
+      if (!symbol) return
+      setActive(symbol)
+    }
+
+    tbodyLeft.addEventListener('click', onRowClick)
+    tbodyRight.addEventListener('click', onRowClick)
 
     quoteFilterEl.addEventListener('change', async () => { state.clear(); tick = 0; startPolling() })
     intervalEl.addEventListener('change', () => { startPolling() })
