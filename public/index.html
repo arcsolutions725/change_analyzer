@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MEXC Change Analyzer</title>
   <style>
-    :root { --bg:#0f1115; --fg:#e6e6e6; --muted:#9aa0a6; --green:#17c964; --red:#ef4444; --card:#141821; --pair-w:160px; --price-w:120px; --cell-w:110px; }
+    :root { --bg:#0f1115; --fg:#e6e6e6; --muted:#9aa0a6; --green:#17c964; --red:#ef4444; --card:#141821; --pair-w:160px; --price-w:120px; --cell-w:110px; --no-w:60px; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial; background: var(--bg); color: var(--fg); }
     header { padding: 12px 16px; border-bottom: 1px solid #1f2430; display: flex; gap: 16px; align-items: center; }
@@ -33,6 +33,7 @@
     .right { flex: 1 1 auto;}
     .col-pair { width: var(--pair-w); min-width: var(--pair-w); }
     .col-price { width: var(--price-w); min-width: var(--price-w); }
+    .col-no { width: var(--no-w); min-width: var(--no-w); }
     .cell { width: var(--cell-w); min-width: var(--cell-w); }
   </style>
 </head>
@@ -130,7 +131,10 @@
     }
 
     function buildHeaders() {
-      theadLeft.innerHTML = '<tr>' + ['Pair','Price'].map((c,i) => `<th class="nowrap ${i===0?'col-pair':'col-price'}">${c}</th>`).join('') + '</tr>'
+      theadLeft.innerHTML = '<tr>' + ['No','Pair','Price'].map((c,i) => {
+        const cls = i===0?'col-no':(i===1?'col-pair':'col-price')
+        return `<th class="nowrap ${cls}">${c}</th>`
+      }).join('') + '</tr>'
       const labels = ['Trend(10)','Change %']
       const histCount = Math.min(maxHistory, tick)
       for (let i = histCount; i >= 1; i--) labels.push('t' + i)
@@ -186,13 +190,14 @@
         if (bNew && !aNew) return 1
         return Number(b.trend10 || 0) - Number(a.trend10 || 0)
       })
+      const top = rows.slice(0, 30)
       const historyCols = Math.min(maxHistory, tick)
-      const leftHtml = rows.map(r => {
+      const leftHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const pair = pairWithSlash(r.symbol)
-        return `<tr class="row" data-symbol="${r.symbol}"><td class="col-pair">${pair}</td><td class="num col-price">${fmtNum(r.lastPrice)}</td></tr>`
+        return `<tr class="row" data-symbol="${r.symbol}"><td class="num col-no">${i+1}</td><td class="col-pair">${pair}</td><td class="num col-price">${fmtNum(r.lastPrice)}</td></tr>`
       }).join('')
-      const rightHtml = rows.map(r => {
+      const rightHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const isNew = !(r.priceHistory && r.priceHistory.length >= trendWindow)
         const scls = isNew ? 'new' : (Number(r.trend10) >= 0 ? 'pos' : 'neg')
