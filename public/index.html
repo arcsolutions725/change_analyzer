@@ -71,10 +71,11 @@
 </head>
 <body>
   <header>
-    <h1>MEXC Spot Mini Tickers</h1>
+    <h1>MEXC Future Mini Tickers</h1>
     <div class="controls">
       <div class="segmented" id="orderSwitch">
         <button class="seg-option active" data-mode="streak">Up-streak</button>
+        <button class="seg-option" data-mode="downstreak">Down-streak</button>
         <button class="seg-option" data-mode="upcount">Up-count</button>
         <button class="seg-option" data-mode="downcount">Down-count</button>
         <button class="seg-option" data-mode="mixed">Mixed</button>
@@ -157,6 +158,19 @@
         const prev = Number(ph[i-1].p)
         if (Number.isNaN(cur) || Number.isNaN(prev)) break
         if (cur > prev) cnt++
+        else break
+      }
+      return cnt
+    }
+
+    function downStreak(ph) {
+      if (!ph || ph.length < 2) return 0
+      let cnt = 0
+      for (let i = ph.length - 1; i > 0 && cnt < priceCols; i--) {
+        const cur = Number(ph[i].p)
+        const prev = Number(ph[i-1].p)
+        if (Number.isNaN(cur) || Number.isNaN(prev)) break
+        if (cur < prev) cnt++
         else break
       }
       return cnt
@@ -359,8 +373,14 @@
         const bNew = (tick >= trendWindow) && (bl < trendWindow)
         if (aNew && !bNew) return -1
         if (bNew && !aNew) return 1
-        const sa = orderMode === 'mixed' ? mixedScore(a.priceHistory) : (orderMode === 'upcount' ? upCount(a.priceHistory) : (orderMode === 'downcount' ? downCount(a.priceHistory) : upStreak(a.priceHistory)))
-        const sb = orderMode === 'mixed' ? mixedScore(b.priceHistory) : (orderMode === 'upcount' ? upCount(b.priceHistory) : (orderMode === 'downcount' ? downCount(b.priceHistory) : upStreak(b.priceHistory)))
+        const sa = orderMode === 'mixed' ? mixedScore(a.priceHistory) : (
+          orderMode === 'upcount' ? upCount(a.priceHistory) : (
+          orderMode === 'downcount' ? downCount(a.priceHistory) : (
+          orderMode === 'downstreak' ? downStreak(a.priceHistory) : upStreak(a.priceHistory))))
+        const sb = orderMode === 'mixed' ? mixedScore(b.priceHistory) : (
+          orderMode === 'upcount' ? upCount(b.priceHistory) : (
+          orderMode === 'downcount' ? downCount(b.priceHistory) : (
+          orderMode === 'downstreak' ? downStreak(b.priceHistory) : upStreak(b.priceHistory))))
         if (sb !== sa) return sb - sa
         // Percent change tie-break for all modes, per user request
         const ap = Number(a.pct || 0)
