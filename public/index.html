@@ -513,6 +513,11 @@
       if (!symbol) return
       setActive(symbol)
       const text = pairUrl(symbol)
+      if (e.ctrlKey) {
+        try { window.open(text, '_blank') } catch {}
+        statusEl.textContent = 'Opened ' + text
+        return
+      }
       try {
         navigator.clipboard && navigator.clipboard.writeText(text)
         statusEl.textContent = 'Copied ' + text
