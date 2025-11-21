@@ -115,6 +115,7 @@
     const maxHistory = 30
     const maxPriceHistory = 200
     const trendWindow = 10
+    const maxTrendHistory = 10
     const state = new Map()
     let selectedSymbol = null
     const alertedNew = new Set()
@@ -214,7 +215,9 @@
         const cls = i===0?'col-no':(i===1?'col-pair':'col-price')
         return `<th class="nowrap ${cls}">${c}</th>`
       }).join('') + '</tr>'
-      const labels = ['Trend(10)','Change %']
+      const labels = ['Trend(10)']
+      for (let i = maxTrendHistory; i >= 1; i--) labels.push('tr' + i)
+      labels.push('Change %')
       const histCount = Math.min(maxHistory, tick)
       for (let i = histCount; i >= 1; i--) labels.push('t' + i)
       theadRight.innerHTML = '<tr>' + labels.map(c => `<th class="nowrap cell">${c}</th>`).join('') + '</tr>'
@@ -239,17 +242,20 @@
             state.set(symbol, row)
             if (tick >= trendWindow) notifyNew(symbol)
           }
-          const now = Date.now()
-          row.priceHistory.push({ p: Number(lastPrice), ts: now })
-          if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
-          const prevT = row.trend10
-          row.trend10 = computeTrend(row.priceHistory)
-          row.prevTrend10 = prevT
-          row.lastPrice = lastPrice
-          row.pct = pct
-          row.amount = amount
-          row.history.push(pct)
-          if (row.history.length > maxHistory) row.history.shift()
+        const now = Date.now()
+        row.priceHistory.push({ p: Number(lastPrice), ts: now })
+        if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
+        const prevT = row.trend10
+        row.trend10 = computeTrend(row.priceHistory)
+        row.prevTrend10 = prevT
+        if (!row.trendHistory) row.trendHistory = []
+        row.trendHistory.push(row.trend10)
+        if (row.trendHistory.length > maxTrendHistory) row.trendHistory.shift()
+        row.lastPrice = lastPrice
+        row.pct = pct
+        row.amount = amount
+        row.history.push(pct)
+        if (row.history.length > maxHistory) row.history.shift()
         })
         tick++
         render()
@@ -283,6 +289,19 @@
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const isNew = (tick >= trendWindow) && !(r.priceHistory && r.priceHistory.length >= trendWindow)
         const scls = isNew ? 'new' : (Number(r.trend10) >= 0 ? 'pos' : 'neg')
+        const trCells = []
+        for (let j = 0; j < maxTrendHistory; j++) {
+          const idx = (r.trendHistory ? r.trendHistory.length : 0) - 1 - j
+          const v = idx >= 0 ? r.trendHistory[idx] : null
+          let c = 'muted'
+          let text = ''
+          if (v != null) {
+            const n = Number(v)
+            c = Number.isNaN(n) ? 'muted' : (n >= 0 ? 'pos' : 'neg')
+            text = fmtSpeed(v)
+          }
+          trCells.push(`<td class="cell ${c}">${text}</td>`)
+        }
         const cells = []
         for (let i = 0; i < historyCols; i++) {
           const idx = r.history.length - 1 - i
@@ -305,7 +324,7 @@
           return '<span class="arrow-flat">→</span>'
         })()
         const trendText = isNew ? 'new token' : `${arrowHtml} ${fmtSpeed(r.trend10)}`
-        return `<tr class="row" data-symbol="${r.symbol}"><td class="num ${scls} cell">${trendText}</td><td class="num ${cls} cell">${fmtPct(r.pct)}</td>${cells.join('')}</tr>`
+        return `<tr class="row" data-symbol="${r.symbol}"><td class="num ${scls} cell">${trendText}</td>${trCells.join('')}<td class="num ${cls} cell">${fmtPct(r.pct)}</td>${cells.join('')}</tr>`
       }).join('')
       tbodyLeft.innerHTML = leftHtml
       tbodyRight.innerHTML = rightHtml
@@ -341,22 +360,24 @@
                 const pct = (x.zonedRate ?? x.rate)
                 const amount = x.quantity || x.volume || ''
                 let row = state.get(symbol)
-                if (!row) {
-                  row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null }
-                  state.set(symbol, row)
-                  if (tick >= trendWindow) notifyNew(symbol)
-                }
-                const now = Date.now()
-                row.priceHistory.push({ p: Number(lastPrice), ts: now })
-                if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
-                const prevT = row.trend10
-                row.trend10 = computeTrend(row.priceHistory)
-                row.prevTrend10 = prevT
-                row.lastPrice = lastPrice
-                row.pct = pct
-                row.amount = amount
-                row.history.push(pct)
-                if (row.history.length > maxHistory) row.history.shift()
+          if (!row) {
+            row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, trendHistory: [] }
+            state.set(symbol, row)
+            if (tick >= trendWindow) notifyNew(symbol)
+          }
+          const now = Date.now()
+          row.priceHistory.push({ p: Number(lastPrice), ts: now })
+          if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
+          const prevT = row.trend10
+          row.trend10 = computeTrend(row.priceHistory)
+          row.prevTrend10 = prevT
+          row.trendHistory.push(row.trend10)
+          if (row.trendHistory.length > maxTrendHistory) row.trendHistory.shift()
+          row.lastPrice = lastPrice
+          row.pct = pct
+          row.amount = amount
+          row.history.push(pct)
+          if (row.history.length > maxHistory) row.history.shift()
               })
               tick++
               render()

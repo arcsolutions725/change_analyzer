@@ -1,0 +1,20 @@
+{
+  "apps": [
+    {
+      "name": "change-analyzer",
+      "script": "server.js",
+      "cwd": ".",
+      "instances": 1,
+      "autorestart": true,
+      "watch": false,
+      "env": {
+        "PORT": 5173,
+        "NODE_ENV": "production"
+      },
+      "out_file": "logs/out.log",
+      "error_file": "logs/error.log",
+      "merge_logs": true,
+      "time": true
+    }
+  ]
+}
