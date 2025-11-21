@@ -12,6 +12,9 @@
     header h1 { font-size: 16px; margin: 0; }
     .controls { display: flex; gap: 12px; align-items: center; color: var(--muted); }
     .controls label { font-size: 12px; }
+    .segmented { display: inline-flex; background: #171b24; border-radius: 999px; padding: 2px; border: 1px solid #2a3140; }
+    .segmented .seg-option { border: 0; background: transparent; color: var(--muted); padding: 6px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; }
+    .segmented .seg-option.active { background: var(--green); color: #0f1115; }
     .container { padding: 16px; }
     table { border-collapse: collapse; background: var(--card); table-layout: fixed; }
     thead th { position: sticky; top: 0; background: #171b24; font-weight: 600; color: var(--muted); font-size: 12px; text-align: left; padding: 10px; border-bottom: 1px solid #1f2430; }
@@ -70,13 +73,12 @@
   <header>
     <h1>MEXC Spot Mini Tickers</h1>
     <div class="controls">
-      <label>Poll interval:
-        <select id="interval">
-          <option value="10000">10s</option>
-          <option value="20000">20s</option>
-          <option value="30000">30s</option>
-        </select>
-      </label>
+      <div class="segmented" id="orderSwitch">
+        <button class="seg-option active" data-mode="streak">Up-streak</button>
+        <button class="seg-option" data-mode="upcount">Up-count</button>
+        <button class="seg-option" data-mode="downcount">Down-count</button>
+        <button class="seg-option" data-mode="mixed">Mixed</button>
+      </div>
       <span id="status" class="muted small">Idle</span>
     </div>
   </header>
@@ -108,7 +110,8 @@
     const theadRight = document.getElementById('theadRight')
     const tbodyRight = document.getElementById('tbodyRight')
     const statusEl = document.getElementById('status')
-    const intervalEl = document.getElementById('interval')
+    const orderSwitch = document.getElementById('orderSwitch')
+    let orderMode = 'streak'
 
     let timer = null
     let tick = 0
@@ -116,12 +119,15 @@
     const maxPriceHistory = 200
     const trendWindow = 10
     const maxTrendHistory = 10
+    const priceCols = 20
     const state = new Map()
     let selectedSymbol = null
     const alertedNew = new Set()
     const newBarEl = document.getElementById('newTokensBar')
     const toastRoot = document.getElementById('toastRoot')
     let nextColor = 0
+    const allowedFutures = new Set()
+    let futuresReady = false
 
     function fmtNum(v, digits = 6) {
       if (v == null || v === '') return ''
@@ -143,6 +149,51 @@
       return n.toFixed(2) + '%/m'
     }
 
+    function upStreak(ph) {
+      if (!ph || ph.length < 2) return 0
+      let cnt = 0
+      for (let i = ph.length - 1; i > 0 && cnt < priceCols; i--) {
+        const cur = Number(ph[i].p)
+        const prev = Number(ph[i-1].p)
+        if (Number.isNaN(cur) || Number.isNaN(prev)) break
+        if (cur > prev) cnt++
+        else break
+      }
+      return cnt
+    }
+
+    function upCount(ph) {
+      if (!ph || ph.length < 2) return 0
+      let cnt = 0
+      let steps = 0
+      for (let i = ph.length - 1; i > 0 && steps < priceCols; i--, steps++) {
+        const cur = Number(ph[i].p)
+        const prev = Number(ph[i-1].p)
+        if (Number.isNaN(cur) || Number.isNaN(prev)) continue
+        if (cur > prev) cnt++
+      }
+      return cnt
+    }
+
+    function downCount(ph) {
+      if (!ph || ph.length < 2) return 0
+      let cnt = 0
+      let steps = 0
+      for (let i = ph.length - 1; i > 0 && steps < priceCols; i--, steps++) {
+        const cur = Number(ph[i].p)
+        const prev = Number(ph[i-1].p)
+        if (Number.isNaN(cur) || Number.isNaN(prev)) continue
+        if (cur < prev) cnt++
+      }
+      return cnt
+    }
+
+    function mixedScore(ph) {
+      const s = upStreak(ph)
+      const c = upCount(ph)
+      return 0.6 * s + 0.4 * c
+    }
+
     function computeTrend(pts) {
       if (!pts || pts.length < trendWindow) return 0
       const slice = pts.slice(pts.length - trendWindow)
@@ -156,6 +207,22 @@
       if (den === 0) return 0
       const slopePerMin = num / den
       return slopePerMin * 100
+    }
+
+    function computeTrendFromPct(pcts, intervalMs) {
+      if (!pcts || pcts.length < trendWindow) return null
+      const slice = pcts.slice(pcts.length - trendWindow).map(Number).filter(v => !Number.isNaN(v))
+      if (slice.length < trendWindow) return null
+      const stepMin = (intervalMs || 10000) / 60000
+      const xs = Array.from({ length: slice.length }, (_, i) => i * stepMin)
+      let mx = 0, my = 0
+      for (let i = 0; i < xs.length; i++) { mx += xs[i]; my += slice[i] }
+      mx /= xs.length; my /= xs.length
+      let num = 0, den = 0
+      for (let i = 0; i < xs.length; i++) { const dx = xs[i] - mx; num += dx * (slice[i] - my); den += dx * dx }
+      if (den === 0) return 0
+      const slopePerMin = num / den
+      return slopePerMin
     }
 
     function notifyNew(symbol) {
@@ -204,22 +271,32 @@
       for (const q of knownQuotes) {
         if (symbol.endsWith(q)) {
           const base = symbol.slice(0, -q.length)
-          return 'https://www.mexc.com/exchange/' + base + '_' + q + '?_from=search_spot_trade'
+          
+          return 'https://www.mexc.com/futures/' + base + '_' + q + '?type=linear_swap'
         }
       }
-      return 'https://www.mexc.com/exchange/' + symbol + '?_from=search_spot_trade'
+      return 'https://www.mexc.com/futures/' + symbol + '?type=linear_swap'
+    }
+
+    function spotToFutures(symbol) {
+      const q = 'USDT'
+      if (symbol.endsWith(q)) {
+        const base = symbol.slice(0, -q.length)
+        return base + '_' + q
+      }
+      return symbol
     }
 
     function buildHeaders() {
-      theadLeft.innerHTML = '<tr>' + ['No','Pair','Price'].map((c,i) => {
-        const cls = i===0?'col-no':(i===1?'col-pair':'col-price')
+      const leftLabels = ['No','Pair','Price']
+      const modeLabel = orderMode === 'upcount' ? 'Up-count' : (orderMode === 'downcount' ? 'Down-count' : '')
+      if (modeLabel) leftLabels.push(modeLabel)
+      theadLeft.innerHTML = '<tr>' + leftLabels.map((c,i) => {
+        const cls = i===0?'col-no':(i===1?'col-pair':(i===2?'col-price':'cell'))
         return `<th class="nowrap ${cls}">${c}</th>`
       }).join('') + '</tr>'
-      const labels = ['Trend(10)']
-      for (let i = maxTrendHistory; i >= 1; i--) labels.push('tr' + i)
-      labels.push('Change %')
-      const histCount = Math.min(maxHistory, tick)
-      for (let i = histCount; i >= 1; i--) labels.push('t' + i)
+      const labels = []
+      for (let i = priceCols; i >= 1; i--) labels.push('p' + i)
       theadRight.innerHTML = '<tr>' + labels.map(c => `<th class="nowrap cell">${c}</th>`).join('') + '</tr>'
     }
 
@@ -230,39 +307,45 @@
         const res = await fetch(API)
         const data = await res.json()
         const items = Array.isArray(data) ? data : [data]
-        const filtered = items.filter(x => x.symbol.endsWith('USDT'))
+        const filtered = items.filter(x => x.symbol && x.symbol.endsWith('USDT') && allowedFutures.has(spotToFutures(x.symbol)))
         filtered.forEach(x => {
-          const symbol = x.symbol
-          const lastPrice = x.lastPrice
-          const pct = x.priceChangePercent
-          const amount = x.volume || x.quoteVolume || ''
-          let row = state.get(symbol)
-          if (!row) {
-            row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, colorIdx: (nextColor++ % 30) }
-            state.set(symbol, row)
-            if (tick >= trendWindow) notifyNew(symbol)
-          }
-        const now = Date.now()
-        row.priceHistory.push({ p: Number(lastPrice), ts: now })
-        if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
-        const prevT = row.trend10
-        row.trend10 = computeTrend(row.priceHistory)
-        row.prevTrend10 = prevT
-        if (!row.trendHistory) row.trendHistory = []
-        row.trendHistory.push(row.trend10)
-        if (row.trendHistory.length > maxTrendHistory) row.trendHistory.shift()
-        row.lastPrice = lastPrice
-        row.pct = pct
-        row.amount = amount
-        row.history.push(pct)
-        if (row.history.length > maxHistory) row.history.shift()
+          try {
+            const symbol = x.symbol
+            const lastPrice = x.lastPrice
+            const pct = x.priceChangePercent
+            const amount = x.volume || x.quoteVolume || ''
+            let row = state.get(symbol)
+            if (!row) {
+              row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, trendHistory: [] }
+              state.set(symbol, row)
+              if (tick >= trendWindow) notifyNew(symbol)
+            }
+            const now = Date.now()
+            row.priceHistory.push({ p: Number(lastPrice), ts: now })
+            if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
+            row.lastPrice = lastPrice
+            row.pct = pct
+            row.amount = amount
+            row.history.push(pct)
+            if (row.history.length > maxHistory) row.history.shift()
+            const prevT = row.trend10
+            const intervalMs = 30000
+            const tNow = computeTrendFromPct(row.history, intervalMs)
+            if (tNow != null) {
+              row.trend10 = tNow
+              row.prevTrend10 = prevT
+              if (!row.trendHistory) row.trendHistory = []
+              row.trendHistory.push(row.trend10)
+              if (row.trendHistory.length > maxTrendHistory) row.trendHistory.shift()
+            }
+          } catch {}
         })
         tick++
         render()
         const ms = Date.now() - start
         statusEl.textContent = 'Updated ' + new Date().toLocaleTimeString() + ' • ' + ms + 'ms'
       } catch (e) {
-        statusEl.textContent = 'Error'
+        statusEl.textContent = 'Error' + (e && e.message ? (': ' + e.message) : '')
       }
     }
 
@@ -276,55 +359,57 @@
         const bNew = (tick >= trendWindow) && (bl < trendWindow)
         if (aNew && !bNew) return -1
         if (bNew && !aNew) return 1
+        const sa = orderMode === 'mixed' ? mixedScore(a.priceHistory) : (orderMode === 'upcount' ? upCount(a.priceHistory) : (orderMode === 'downcount' ? downCount(a.priceHistory) : upStreak(a.priceHistory)))
+        const sb = orderMode === 'mixed' ? mixedScore(b.priceHistory) : (orderMode === 'upcount' ? upCount(b.priceHistory) : (orderMode === 'downcount' ? downCount(b.priceHistory) : upStreak(b.priceHistory)))
+        if (sb !== sa) return sb - sa
+        // Percent change tie-break for all modes, per user request
+        const ap = Number(a.pct || 0)
+        const bp = Number(b.pct || 0)
+        if (bp !== ap) return bp - ap
         return Number(b.trend10 || 0) - Number(a.trend10 || 0)
       })
       const top = rows.slice(0, 30)
-      const historyCols = Math.min(maxHistory, tick)
       const leftHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const pair = pairWithSlash(r.symbol)
-        return `<tr class="row" data-symbol="${r.symbol}"><td class="num col-no">${i+1}</td><td class="col-pair copyable" data-pair="${pair}" title="Click to copy">${pair}</td><td class="num col-price">${fmtNum(r.lastPrice)}</td></tr>`
+        let countCell = ''
+        if (orderMode === 'upcount') {
+          countCell = `<td class="num cell">${upCount(r.priceHistory)}</td>`
+        } else if (orderMode === 'downcount') {
+          countCell = `<td class="num cell">${downCount(r.priceHistory)}</td>`
+        }
+        return `<tr class="row" data-symbol="${r.symbol}"><td class="num col-no">${i+1}</td><td class="col-pair copyable" data-pair="${pair}" title="Click to copy">${pair}</td><td class="num col-price">${fmtNum(r.lastPrice)}</td>${countCell}</tr>`
       }).join('')
       const rightHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
-        const isNew = (tick >= trendWindow) && !(r.priceHistory && r.priceHistory.length >= trendWindow)
-        const scls = isNew ? 'new' : (Number(r.trend10) >= 0 ? 'pos' : 'neg')
-        const trCells = []
-        for (let j = 0; j < maxTrendHistory; j++) {
-          const idx = (r.trendHistory ? r.trendHistory.length : 0) - 1 - j
-          const v = idx >= 0 ? r.trendHistory[idx] : null
+        const isNew = !(r.priceHistory && r.priceHistory.length >= priceCols)
+        const phCells = []
+        const len = (r.priceHistory ? r.priceHistory.length : 0)
+        for (let j = 1; j <= priceCols; j++) {
+          const idx = len - 1 - j
+          const v = idx >= 0 ? r.priceHistory[idx] : null
+          const prev = (idx - 1 >= 0) ? r.priceHistory[idx - 1] : null
           let c = 'muted'
           let text = ''
-          if (v != null) {
-            const n = Number(v)
-            c = Number.isNaN(n) ? 'muted' : (n >= 0 ? 'pos' : 'neg')
-            text = fmtSpeed(v)
+          let arrowHtml = ''
+          if (v && typeof v.p !== 'undefined') {
+            const cur = Number(v.p)
+            const pn = prev && typeof prev.p !== 'undefined' ? Number(prev.p) : null
+            if (!Number.isNaN(cur)) {
+              if (pn != null && !Number.isNaN(pn)) {
+                if (cur > pn) arrowHtml = '<span class="arrow-up">↑</span>'
+                else if (cur < pn) arrowHtml = '<span class="arrow-down">↓</span>'
+                else arrowHtml = '<span class="arrow-flat">→</span>'
+                c = cur >= pn ? (cur === pn ? 'muted' : 'pos') : 'neg'
+              } else {
+                c = 'muted'
+              }
+              text = `${arrowHtml} ${fmtNum(cur)}`
+            }
           }
-          trCells.push(`<td class="cell ${c}">${text}</td>`)
+          phCells.push(`<td class="cell ${c}">${text}</td>`)
         }
-        const cells = []
-        for (let i = 0; i < historyCols; i++) {
-          const idx = r.history.length - 1 - i
-          const v = idx >= 0 ? r.history[idx] : null
-          let c = 'muted'
-          let text = ''
-          if (v != null) {
-            const n = Number(v)
-            c = Number.isNaN(n) ? 'muted' : (n >= 0 ? 'pos' : 'neg')
-            text = fmtPct(v)
-          }
-          cells.push(`<td class="cell ${c}">${text}</td>`)
-        }
-        const arrowHtml = (() => {
-          if (isNew || r.prevTrend10 == null) return ''
-          const cur = Number(r.trend10)
-          const prev = Number(r.prevTrend10)
-          if (cur > prev) return '<span class="arrow-up">↑</span>'
-          if (cur < prev) return '<span class="arrow-down">↓</span>'
-          return '<span class="arrow-flat">→</span>'
-        })()
-        const trendText = isNew ? 'new token' : `${arrowHtml} ${fmtSpeed(r.trend10)}`
-        return `<tr class="row" data-symbol="${r.symbol}"><td class="num ${scls} cell">${trendText}</td>${trCells.join('')}<td class="num ${cls} cell">${fmtPct(r.pct)}</td>${cells.join('')}</tr>`
+        return `<tr class="row" data-symbol="${r.symbol}">${phCells.join('')}</tr>`
       }).join('')
       tbodyLeft.innerHTML = leftHtml
       tbodyRight.innerHTML = rightHtml
@@ -340,7 +425,7 @@
     function startPolling() {
       if (timer) clearInterval(timer)
       fetchTickers()
-      timer = setInterval(fetchTickers, Number(intervalEl.value))
+      timer = setInterval(fetchTickers, 30000)
     }
 
     function startWebSocket() {
@@ -353,7 +438,7 @@
             if (msg.type === 'miniTickers') {
               const data = msg.data
               const items = Array.isArray(data) ? data : [data]
-              const filtered = items.filter(x => x.symbol.endsWith('USDT'))
+              const filtered = items.filter(x => x.symbol && x.symbol.endsWith('USDT') && allowedFutures.has(spotToFutures(x.symbol)))
               filtered.forEach(x => {
                 const symbol = x.symbol
                 const lastPrice = x.price
@@ -368,16 +453,20 @@
           const now = Date.now()
           row.priceHistory.push({ p: Number(lastPrice), ts: now })
           if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
-          const prevT = row.trend10
-          row.trend10 = computeTrend(row.priceHistory)
-          row.prevTrend10 = prevT
-          row.trendHistory.push(row.trend10)
-          if (row.trendHistory.length > maxTrendHistory) row.trendHistory.shift()
           row.lastPrice = lastPrice
           row.pct = pct
           row.amount = amount
           row.history.push(pct)
           if (row.history.length > maxHistory) row.history.shift()
+          const prevT = row.trend10
+          const intervalMs = 30000
+          const tNow = computeTrendFromPct(row.history, intervalMs)
+          if (tNow != null) {
+            row.trend10 = tNow
+            row.prevTrend10 = prevT
+            row.trendHistory.push(row.trend10)
+            if (row.trendHistory.length > maxTrendHistory) row.trendHistory.shift()
+          }
               })
               tick++
               render()
@@ -413,10 +502,31 @@
     tbodyLeft.addEventListener('click', onRowClick)
     tbodyRight.addEventListener('click', onRowClick)
 
-    intervalEl.addEventListener('change', () => { startPolling() })
+    orderSwitch.addEventListener('click', (e) => {
+      const btn = e.target.closest('.seg-option')
+      if (!btn) return
+      orderMode = btn.dataset.mode
+      orderSwitch.querySelectorAll('.seg-option').forEach(b => b.classList.toggle('active', b === btn))
+      render()
+    })
 
-    startWebSocket()
-    startPolling()
+    async function loadFuturesAllowed() {
+      try {
+        const res = await fetch('/api/futures/contracts?settle=USDT')
+        const data = await res.json()
+        const list = Array.isArray(data.symbols) ? data.symbols : []
+        list.forEach(s => allowedFutures.add(s))
+        futuresReady = true
+      } catch {}
+    }
+
+    async function initialize() {
+      await loadFuturesAllowed()
+      startWebSocket()
+      startPolling()
+    }
+
+    initialize()
   </script>
 </body>
 </html>
