@@ -7,6 +7,19 @@ import path from 'path'
 import url from 'url'
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
+function loadDotEnv(file = path.join(__dirname, '.env')) {
+  try {
+    const text = fs.readFileSync(file, 'utf8')
+    text.split(/\r?\n/).forEach(line => {
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/)
+      if (!m) return
+      let v = m[2]
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1)
+      process.env[m[1]] = v
+    })
+  } catch {}
+}
+loadDotEnv()
 const publicDir = path.join(__dirname, 'public')
 const port = process.env.PORT || 5173
 const APP_PASSWORD = process.env.APP_PASSWORD || null
