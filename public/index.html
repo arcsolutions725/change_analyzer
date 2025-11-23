@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MEXC Change Analyzer</title>
   <style>
-    :root { --bg:#0f1115; --fg:#e6e6e6; --muted:#9aa0a6; --green:#17c964; --red:#ff0000; --card:#141821; --pair-w:160px; --price-w:120px; --cell-w:110px; --no-w:60px; }
+    :root { --bg:#0f1115; --fg:#e6e6e6; --muted:#9aa0a6; --green:#17c964; --red:#ff0000; --card:#141821; --pair-w:120px; --price-w:120px; --cell-w:110px; --no-w:60px; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial; background: var(--bg); color: var(--fg); }
     header { padding: 12px 16px; border-bottom: 1px solid #1f2430; display: flex; gap: 16px; align-items: center; }
@@ -59,7 +59,9 @@
     .row-c29 { background: hsla(348, 70%, 50%, 0.3); }
     .nowrap { white-space: nowrap; }
     .small { font-size: 12px; }
-    .sticky-wrap { overflow: scroll; max-height: calc(100vh - 80px); }
+    .sticky-wrap { max-height: calc(100vh - 80px); }
+    .sections-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .section { display: flex; flex-direction: column; overflow: auto; scrollbar-width: none;}
     .layout { display: flex; gap: 8px; }
     .left { flex: 0 0 auto; }
     .right { flex: 1 1 auto;}
@@ -67,6 +69,7 @@
     .col-price { width: var(--price-w); min-width: var(--price-w); }
     .col-no { width: var(--no-w); min-width: var(--no-w); }
     .cell { width: var(--cell-w); min-width: var(--cell-w); }
+    .section-title { font-size: 12px; color: var(--muted); margin: 8px 0 6px 0; }
   </style>
 </head>
 <body>
@@ -84,21 +87,85 @@
     </div>
   </header>
   <div class="toast-root" id="toastRoot"></div>
+  <div id="lockScreen" style="position:fixed;inset:0;background:#0f1115;display:flex;align-items:center;justify-content:center;z-index:9998;">
+    <div style="background:#171b24;border:1px solid #2a3140;border-radius:12px;padding:20px;min-width:280px;display:flex;flex-direction:column;gap:10px;">
+      <div class="small muted">Enter password to unlock</div>
+      <input id="pwdInput" type="password" placeholder="Password" style="padding:8px 10px;border-radius:8px;border:1px solid #2a3140;background:#141821;color:#e6e6e6;outline:none;" />
+      <button id="unlockBtn" style="padding:8px 10px;border-radius:8px;border:1px solid #2a3140;background:#17c964;color:#0f1115;cursor:pointer;">Unlock</button>
+      <div id="loginError" class="small" style="color:#ff0000;display:none;">Invalid password</div>
+    </div>
+  </div>
   <div class="container">
     <div id="newTokensBar" class="small" style="margin:8px 0 12px 0;"></div>
     <div class="sticky-wrap">
-      <div class="layout">
-        <div class="left">
-          <table id="tableLeft">
-            <thead id="theadLeft"></thead>
-            <tbody id="tbodyLeft"></tbody>
-          </table>
+      <div class="sections-grid">
+        <div class="section">
+          <div class="section-title">30s</div>
+          <div class="layout">
+            <div class="left">
+              <table id="tableLeft1">
+                <thead id="theadLeft1"></thead>
+                <tbody id="tbodyLeft1"></tbody>
+              </table>
+            </div>
+            <div class="right">
+              <table id="tableRight1">
+                <thead id="theadRight1"></thead>
+                <tbody id="tbodyRight1"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div class="right">
-          <table id="tableRight">
-            <thead id="theadRight"></thead>
-            <tbody id="tbodyRight"></tbody>
-          </table>
+        <div class="section">
+          <div class="section-title">5m</div>
+          <div class="layout">
+            <div class="left">
+              <table id="tableLeft2">
+                <thead id="theadLeft2"></thead>
+                <tbody id="tbodyLeft2"></tbody>
+              </table>
+            </div>
+            <div class="right">
+              <table id="tableRight2">
+                <thead id="theadRight2"></thead>
+                <tbody id="tbodyRight2"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-title">15m</div>
+          <div class="layout">
+            <div class="left">
+              <table id="tableLeft3">
+                <thead id="theadLeft3"></thead>
+                <tbody id="tbodyLeft3"></tbody>
+              </table>
+            </div>
+            <div class="right">
+              <table id="tableRight3">
+                <thead id="theadRight3"></thead>
+                <tbody id="tbodyRight3"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-title">30m</div>
+          <div class="layout">
+            <div class="left">
+              <table id="tableLeft4">
+                <thead id="theadLeft4"></thead>
+                <tbody id="tbodyLeft4"></tbody>
+              </table>
+            </div>
+            <div class="right">
+              <table id="tableRight4">
+                <thead id="theadRight4"></thead>
+                <tbody id="tbodyRight4"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -106,10 +173,12 @@
   <script>
     const API = '/api/ticker24'
     const WS_PATH = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/stream'
-    const theadLeft = document.getElementById('theadLeft')
-    const tbodyLeft = document.getElementById('tbodyLeft')
-    const theadRight = document.getElementById('theadRight')
-    const tbodyRight = document.getElementById('tbodyRight')
+    const sections = [
+      { id: 1, intervalMs: 30000, theadLeft: document.getElementById('theadLeft1'), tbodyLeft: document.getElementById('tbodyLeft1'), theadRight: document.getElementById('theadRight1'), tbodyRight: document.getElementById('tbodyRight1'), state: new Map(), tick: 0, timer: null },
+      { id: 2, intervalMs: 300000, theadLeft: document.getElementById('theadLeft2'), tbodyLeft: document.getElementById('tbodyLeft2'), theadRight: document.getElementById('theadRight2'), tbodyRight: document.getElementById('tbodyRight2'), state: new Map(), tick: 0, timer: null },
+      { id: 3, intervalMs: 900000, theadLeft: document.getElementById('theadLeft3'), tbodyLeft: document.getElementById('tbodyLeft3'), theadRight: document.getElementById('theadRight3'), tbodyRight: document.getElementById('tbodyRight3'), state: new Map(), tick: 0, timer: null },
+      { id: 4, intervalMs: 1800000, theadLeft: document.getElementById('theadLeft4'), tbodyLeft: document.getElementById('tbodyLeft4'), theadRight: document.getElementById('theadRight4'), tbodyRight: document.getElementById('tbodyRight4'), state: new Map(), tick: 0, timer: null },
+    ]
     const statusEl = document.getElementById('status')
     const orderSwitch = document.getElementById('orderSwitch')
     let orderMode = 'streak'
@@ -129,6 +198,11 @@
     let nextColor = 0
     const allowedFutures = new Set()
     let futuresReady = false
+    let authToken = (typeof localStorage !== 'undefined' ? localStorage.getItem('authToken') : '') || ''
+    const lockScreen = document.getElementById('lockScreen')
+    const pwdInput = document.getElementById('pwdInput')
+    const unlockBtn = document.getElementById('unlockBtn')
+    const loginError = document.getElementById('loginError')
 
     function fmtNum(v, digits = 6) {
       if (v == null || v === '') return ''
@@ -301,24 +375,30 @@
       return symbol
     }
 
-    function buildHeaders() {
-      const leftLabels = ['No','Pair','Price']
+    function buildHeaders(sec) {
+      const leftLabels = ['No','Pair']
       const modeLabel = orderMode === 'upcount' ? 'Up-count' : (orderMode === 'downcount' ? 'Down-count' : '')
       if (modeLabel) leftLabels.push(modeLabel)
-      theadLeft.innerHTML = '<tr>' + leftLabels.map((c,i) => {
-        const cls = i===0?'col-no':(i===1?'col-pair':(i===2?'col-price':'cell'))
+      sec.theadLeft.innerHTML = '<tr>' + leftLabels.map((c,i) => {
+        const cls = i===0?'col-no':(i===1?'col-pair':'cell')
         return `<th class="nowrap ${cls}">${c}</th>`
       }).join('') + '</tr>'
       const labels = []
       for (let i = priceCols; i >= 1; i--) labels.push('p' + i)
-      theadRight.innerHTML = '<tr>' + labels.map(c => `<th class="nowrap cell">${c}</th>`).join('') + '</tr>'
+      sec.theadRight.innerHTML = '<tr>' + labels.map(c => `<th class="nowrap cell">${c}</th>`).join('') + '</tr>'
     }
 
-    async function fetchTickers() {
+    function apiFetch(urlStr, opts = {}) {
+      const headers = Object.assign({}, opts.headers || {})
+      if (authToken) headers['Authorization'] = 'Bearer ' + authToken
+      return fetch(urlStr, Object.assign({}, opts, { headers }))
+    }
+
+    async function fetchTickersFor(sec) {
       const start = Date.now()
       statusEl.textContent = 'Fetching...'
       try {
-        const res = await fetch(API)
+        const res = await apiFetch(API)
         const data = await res.json()
         const items = Array.isArray(data) ? data : [data]
         const filtered = items.filter(x => x.symbol && x.symbol.endsWith('USDT') && allowedFutures.has(spotToFutures(x.symbol)))
@@ -328,11 +408,11 @@
             const lastPrice = x.lastPrice
             const pct = x.priceChangePercent
             const amount = x.volume || x.quoteVolume || ''
-            let row = state.get(symbol)
+            let row = sec.state.get(symbol)
             if (!row) {
               row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, trendHistory: [] }
-              state.set(symbol, row)
-              if (tick >= trendWindow) notifyNew(symbol)
+              sec.state.set(symbol, row)
+              if (sec.tick >= trendWindow && sec.id === 1) notifyNew(symbol)
             }
             const now = Date.now()
             row.priceHistory.push({ p: Number(lastPrice), ts: now })
@@ -343,7 +423,7 @@
             row.history.push(pct)
             if (row.history.length > maxHistory) row.history.shift()
             const prevT = row.trend10
-            const intervalMs = 30000
+            const intervalMs = sec.intervalMs
             const tNow = computeTrendFromPct(row.history, intervalMs)
             if (tNow != null) {
               row.trend10 = tNow
@@ -354,8 +434,8 @@
             }
           } catch {}
         })
-        tick++
-        render()
+        sec.tick++
+        renderSection(sec)
         const ms = Date.now() - start
         statusEl.textContent = 'Updated ' + new Date().toLocaleTimeString() + ' • ' + ms + 'ms'
       } catch (e) {
@@ -363,14 +443,14 @@
       }
     }
 
-    function render() {
-      buildHeaders()
-      const rows = Array.from(state.values())
+    function renderSection(sec) {
+      buildHeaders(sec)
+      const rows = Array.from(sec.state.values())
       rows.sort((a,b) => {
         const al = (a.priceHistory && a.priceHistory.length) ? a.priceHistory.length : 0
         const bl = (b.priceHistory && b.priceHistory.length) ? b.priceHistory.length : 0
-        const aNew = (tick >= trendWindow) && (al < trendWindow)
-        const bNew = (tick >= trendWindow) && (bl < trendWindow)
+        const aNew = (sec.tick >= trendWindow) && (al < trendWindow)
+        const bNew = (sec.tick >= trendWindow) && (bl < trendWindow)
         if (aNew && !bNew) return -1
         if (bNew && !aNew) return 1
         const sa = orderMode === 'mixed' ? mixedScore(a.priceHistory) : (
@@ -388,7 +468,7 @@
         if (bp !== ap) return bp - ap
         return Number(b.trend10 || 0) - Number(a.trend10 || 0)
       })
-      const top = rows.slice(0, 30)
+      const top = rows.slice(0, 9)
       const leftHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const pair = pairWithSlash(r.symbol)
@@ -398,7 +478,7 @@
         } else if (orderMode === 'downcount') {
           countCell = `<td class="num cell">${downCount(r.priceHistory)}</td>`
         }
-        return `<tr class="row" data-symbol="${r.symbol}"><td class="num col-no">${i+1}</td><td class="col-pair copyable" data-pair="${pair}" title="Click to copy">${pair}</td><td class="num col-price">${fmtNum(r.lastPrice)}</td>${countCell}</tr>`
+        return `<tr class="row" data-symbol="${r.symbol}"><td class="num col-no">${i+1}</td><td class="col-pair copyable" data-pair="${pair}" title="Click to copy">${pair}</td>${countCell}</tr>`
       }).join('')
       const rightHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
@@ -431,8 +511,8 @@
         }
         return `<tr class="row" data-symbol="${r.symbol}">${phCells.join('')}</tr>`
       }).join('')
-      tbodyLeft.innerHTML = leftHtml
-      tbodyRight.innerHTML = rightHtml
+      sec.tbodyLeft.innerHTML = leftHtml
+      sec.tbodyRight.innerHTML = rightHtml
       if (selectedSymbol) setActive(selectedSymbol)
     }
 
@@ -442,10 +522,12 @@
       return chips.map(p => `<td class="cell">${p}</td>`).join('')
     }
 
-    function startPolling() {
-      if (timer) clearInterval(timer)
-      fetchTickers()
-      timer = setInterval(fetchTickers, 30000)
+    function startPollingSections() {
+      sections.forEach(sec => {
+        if (sec.timer) clearInterval(sec.timer)
+        fetchTickersFor(sec)
+        sec.timer = setInterval(() => fetchTickersFor(sec), sec.intervalMs)
+      })
     }
 
     function startWebSocket() {
@@ -524,20 +606,22 @@
       } catch {}
     }
 
-    tbodyLeft.addEventListener('click', onRowClick)
-    tbodyRight.addEventListener('click', onRowClick)
+    sections.forEach(sec => {
+      sec.tbodyLeft.addEventListener('click', onRowClick)
+      sec.tbodyRight.addEventListener('click', onRowClick)
+    })
 
     orderSwitch.addEventListener('click', (e) => {
       const btn = e.target.closest('.seg-option')
       if (!btn) return
       orderMode = btn.dataset.mode
       orderSwitch.querySelectorAll('.seg-option').forEach(b => b.classList.toggle('active', b === btn))
-      render()
+      sections.forEach(renderSection)
     })
 
     async function loadFuturesAllowed() {
       try {
-        const res = await fetch('/api/futures/contracts?settle=USDT')
+        const res = await apiFetch('/api/futures/contracts?settle=USDT')
         const data = await res.json()
         const list = Array.isArray(data.symbols) ? data.symbols : []
         list.forEach(s => allowedFutures.add(s))
@@ -547,11 +631,33 @@
 
     async function initialize() {
       await loadFuturesAllowed()
-      startWebSocket()
-      startPolling()
+      startPollingSections()
     }
 
-    initialize()
+    async function tryLogin(password) {
+      loginError.style.display = 'none'
+      try {
+        const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
+        if (!res.ok) { loginError.style.display = 'block'; return }
+        const data = await res.json()
+        const token = data && data.token
+        if (token) {
+          authToken = token
+          try { localStorage.setItem('authToken', token) } catch {}
+          lockScreen.style.display = 'none'
+          initialize()
+        } else {
+          loginError.style.display = 'block'
+        }
+      } catch {
+        loginError.style.display = 'block'
+      }
+    }
+
+    unlockBtn.addEventListener('click', () => { const pw = pwdInput.value || ''; tryLogin(pw) })
+    pwdInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const pw = pwdInput.value || ''; tryLogin(pw) } })
+
+    if (authToken) { lockScreen.style.display = 'none'; initialize() } else { lockScreen.style.display = 'flex' }
   </script>
 </body>
 </html>

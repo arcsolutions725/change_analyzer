@@ -9,11 +9,63 @@ import url from 'url'
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
 const publicDir = path.join(__dirname, 'public')
 const port = process.env.PORT || 5173
+const APP_PASSWORD = process.env.APP_PASSWORD || null
+const AUTH_TOKEN = process.env.AUTH_TOKEN || APP_PASSWORD || null
+
+function getReqToken(req) {
+  try {
+    const h = req.headers['authorization']
+    if (h && typeof h === 'string' && h.startsWith('Bearer ')) return h.slice(7)
+  } catch {}
+  try {
+    const u = new URL('http://x' + req.url)
+    const t = u.searchParams.get('auth')
+    if (t) return t
+  } catch {}
+  return null
+}
+
+function ensureAuth(req, res) {
+  if (!AUTH_TOKEN) return true
+  const tok = getReqToken(req)
+  if (tok && tok === AUTH_TOKEN) return true
+  res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' })
+  res.end(JSON.stringify({ error: 'Unauthorized' }))
+  return false
+}
 
 const server = http.createServer((req, res) => {
   let reqPath = req.url.split('?')[0]
   if (reqPath === '/' || reqPath === '') reqPath = '/index.html'
+  if (reqPath === '/api/login') {
+    const chunks = []
+    req.on('data', (c) => chunks.push(c))
+    req.on('end', () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf8')
+        const parsed = JSON.parse(body || '{}')
+        const pw = parsed && parsed.password
+        if (!APP_PASSWORD) {
+          res.writeHead(503, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Password not set' }))
+          return
+        }
+        if (typeof pw === 'string' && pw === APP_PASSWORD) {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ token: AUTH_TOKEN }))
+        } else {
+          res.writeHead(401, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Invalid password' }))
+        }
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Bad Request' }))
+      }
+    })
+    return
+  }
   if (reqPath === '/api/ticker24') {
+    if (!ensureAuth(req, res)) return
     const targetUrl = 'https://api.mexc.com/api/v3/ticker/24hr'
     https.get(targetUrl, (upstream) => {
       const chunks = []
@@ -33,6 +85,7 @@ const server = http.createServer((req, res) => {
     return
   }
   if (reqPath.startsWith('/api/symbols')) {
+    if (!ensureAuth(req, res)) return
     const targetUrl = 'https://api.mexc.com/api/v3/exchangeInfo'
     https.get(targetUrl, (upstream) => {
       const chunks = []
@@ -60,6 +113,7 @@ const server = http.createServer((req, res) => {
     return
   }
   if (reqPath.startsWith('/api/futures/contracts')) {
+    if (!ensureAuth(req, res)) return
     const targetUrl = 'https://contract.mexc.com/api/v1/contract/detail'
     https.get(targetUrl, (upstream) => {
       const chunks = []
@@ -113,7 +167,14 @@ server.listen(port, () => {
 // Local WebSocket broadcasting REST ticker updates
 const wss = new WebSocketServer({ server, path: '/stream' })
 let wsClients = new Set()
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  if (AUTH_TOKEN) {
+    const tok = getReqToken(req)
+    if (!(tok && tok === AUTH_TOKEN)) {
+      try { ws.close(1008) } catch {}
+      return
+    }
+  }
   wsClients.add(ws)
   ws.on('close', () => wsClients.delete(ws))
 })
