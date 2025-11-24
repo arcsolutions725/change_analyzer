@@ -73,7 +73,7 @@ function ensureAuth(req, res) {
   return false
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   let reqPath = req.url.split('?')[0]
   if (reqPath === '/' || reqPath === '') reqPath = '/index.html'
   if (reqPath === '/api/login') {
