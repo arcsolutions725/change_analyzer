@@ -203,6 +203,7 @@
     const pwdInput = document.getElementById('pwdInput')
     const unlockBtn = document.getElementById('unlockBtn')
     const loginError = document.getElementById('loginError')
+    const hydratedSymbols = new Set()
 
     function fmtNum(v, digits = 6) {
       if (v == null || v === '') return ''
@@ -413,6 +414,7 @@
               row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, trendHistory: [] }
               sec.state.set(symbol, row)
               if (sec.tick >= trendWindow && sec.id === 1) notifyNew(symbol)
+              if (!hydratedSymbols.has(symbol)) { hydratedSymbols.add(symbol); hydrateHistory(symbol).catch(()=>{}) }
             }
             const now = Date.now()
             row.priceHistory.push({ p: Number(lastPrice), ts: now })
@@ -441,6 +443,21 @@
       } catch (e) {
         statusEl.textContent = 'Error' + (e && e.message ? (': ' + e.message) : '')
       }
+    }
+
+    async function hydrateHistory(symbol) {
+      try {
+        const res = await apiFetch('/api/history?symbol=' + encodeURIComponent(symbol) + '&limit=' + priceCols)
+        const arr = await res.json()
+        const secs = sections
+        for (const sec of secs) {
+          const row = sec.state.get(symbol)
+          if (!row) continue
+          if (!Array.isArray(arr)) continue
+          const mapped = arr.map(x => ({ p: Number(x.p), ts: Number(x.ts) }))
+          row.priceHistory = mapped.slice(-maxPriceHistory)
+        }
+      } catch {}
     }
 
     function renderSection(sec) {

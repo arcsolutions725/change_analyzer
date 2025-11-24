@@ -5,9 +5,11 @@ import WebSocket from 'ws'
 import fs from 'fs'
 import path from 'path'
 import url from 'url'
+import mysql from 'mysql2/promise'
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
-function loadDotEnv(file = path.join(__dirname, '.env')) {
+const runtimeDir = (typeof process !== 'undefined' && process.pkg) ? path.dirname(process.execPath) : __dirname
+function loadDotEnv(file = path.join(runtimeDir, '.env')) {
   try {
     const text = fs.readFileSync(file, 'utf8')
     text.split(/\r?\n/).forEach(line => {
@@ -24,6 +26,30 @@ const publicDir = path.join(__dirname, 'public')
 const port = process.env.PORT || 5173
 const APP_PASSWORD = process.env.APP_PASSWORD || null
 const AUTH_TOKEN = process.env.AUTH_TOKEN || APP_PASSWORD || null
+const MYSQL_HOST = process.env.MYSQL_HOST || ''
+const MYSQL_PORT = Number(process.env.MYSQL_PORT || '3306')
+const MYSQL_USER = process.env.MYSQL_USER || ''
+const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || ''
+const MYSQL_DB = process.env.MYSQL_DB || ''
+let dbPool = null
+async function initDb() {
+  if (!MYSQL_HOST || !MYSQL_USER || !MYSQL_DB) return
+  dbPool = mysql.createPool({ host: MYSQL_HOST, port: MYSQL_PORT, user: MYSQL_USER, password: MYSQL_PASSWORD, database: MYSQL_DB, waitForConnections: true, connectionLimit: 5 })
+  try {
+    await dbPool.query('CREATE TABLE IF NOT EXISTS prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, ts BIGINT NOT NULL, price DOUBLE NOT NULL, INDEX idx_symbol_ts (symbol, ts))')
+  } catch {}
+}
+initDb()
+let writeBuf = []
+function queueWrite(symbol, ts, p) { writeBuf.push({ symbol, ts, p }) }
+async function flushWrites() {
+  if (!dbPool || writeBuf.length === 0) return
+  const batch = writeBuf.splice(0, writeBuf.length)
+  const values = batch.map(r => [r.symbol, r.ts, r.p])
+  const placeholders = values.map(() => '(?, ?, ?)').join(',')
+  try { await dbPool.query('INSERT INTO prices (symbol, ts, price) VALUES ' + placeholders, values.flat()) } catch {}
+}
+setInterval(flushWrites, 1000)
 
 function getReqToken(req) {
   try {
@@ -154,6 +180,24 @@ const server = http.createServer((req, res) => {
     })
     return
   }
+  if (reqPath.startsWith('/api/history')) {
+    if (!ensureAuth(req, res)) return
+    const u = new URL('http://x' + req.url)
+    const symbol = u.searchParams.get('symbol') || ''
+    const limit = Number(u.searchParams.get('limit') || '200')
+    if (!symbol) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'symbol required' })); return }
+    try {
+      if (!dbPool) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end('[]'); return }
+      const [rows] = await dbPool.query('SELECT ts, price FROM prices WHERE symbol = ? ORDER BY ts DESC LIMIT ?', [symbol, limit])
+      const out = rows.map(r => ({ ts: Number(r.ts), p: Number(r.price) }))
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify(out))
+    } catch {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end('[]')
+    }
+    return
+  }
   const filePath = path.join(publicDir, reqPath)
   fs.readFile(filePath, (err, data) => {
     if (err) {
@@ -249,6 +293,14 @@ function connectMiniTickers() {
         const out = JSON.stringify({ type: 'miniTickers', data: items, ts: Date.now() })
         for (const client of wsClients) {
           if (client.readyState === client.OPEN) client.send(out)
+        }
+        const nowTs = Date.now()
+        for (const it of items) {
+          try {
+            const symbol = it.symbol || (it.s || '')
+            const price = (it.price ?? it.p ?? it.lastPrice ?? null)
+            if (symbol && typeof price !== 'undefined') queueWrite(symbol, nowTs, Number(price))
+          } catch {}
         }
       }
     } catch {}

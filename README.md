@@ -56,3 +56,4 @@ A lightweight web app that mirrors MEXC sidebar percent values and helps you tra
 ## Scripts
 
 - `npm start` — starts the HTTP server and WebSocket relay
+

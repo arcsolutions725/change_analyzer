@@ -7,6 +7,15 @@
     "ws": "^8.18.0"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build:exe": "pkg server.js --targets node18-win-x64 --output dist/change-analyzer.exe"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ]
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
   }
 }
