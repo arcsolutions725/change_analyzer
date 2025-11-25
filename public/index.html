@@ -176,8 +176,8 @@
       if (!ph || ph.length < 2) return 0
       let cnt = 0
       for (let i = ph.length - 1; i > 0 && cnt < priceCols; i--) {
-        const cur = Number(ph[i].p)
-        const prev = Number(ph[i-1].p)
+        const cur = (ph[i] && typeof ph[i] === 'object' && 'p' in ph[i]) ? (ph[i].p == null ? NaN : Number(ph[i].p)) : Number(ph[i])
+        const prev = (ph[i-1] && typeof ph[i-1] === 'object' && 'p' in ph[i-1]) ? (ph[i-1].p == null ? NaN : Number(ph[i-1].p)) : Number(ph[i-1])
         if (Number.isNaN(cur) || Number.isNaN(prev)) break
         if (cur > prev) cnt++
         else break
@@ -189,8 +189,8 @@
       if (!ph || ph.length < 2) return 0
       let cnt = 0
       for (let i = ph.length - 1; i > 0 && cnt < priceCols; i--) {
-        const cur = Number(ph[i].p)
-        const prev = Number(ph[i-1].p)
+        const cur = (ph[i] && typeof ph[i] === 'object' && 'p' in ph[i]) ? (ph[i].p == null ? NaN : Number(ph[i].p)) : Number(ph[i])
+        const prev = (ph[i-1] && typeof ph[i-1] === 'object' && 'p' in ph[i-1]) ? (ph[i-1].p == null ? NaN : Number(ph[i-1].p)) : Number(ph[i-1])
         if (Number.isNaN(cur) || Number.isNaN(prev)) break
         if (cur < prev) cnt++
         else break
@@ -203,8 +203,8 @@
       let cnt = 0
       let steps = 0
       for (let i = ph.length - 1; i > 0 && steps < priceCols; i--, steps++) {
-        const cur = Number(ph[i].p)
-        const prev = Number(ph[i-1].p)
+        const cur = (ph[i] && typeof ph[i] === 'object' && 'p' in ph[i]) ? (ph[i].p == null ? NaN : Number(ph[i].p)) : Number(ph[i])
+        const prev = (ph[i-1] && typeof ph[i-1] === 'object' && 'p' in ph[i-1]) ? (ph[i-1].p == null ? NaN : Number(ph[i-1].p)) : Number(ph[i-1])
         if (Number.isNaN(cur) || Number.isNaN(prev)) continue
         if (cur > prev) cnt++
       }
@@ -216,8 +216,8 @@
       let cnt = 0
       let steps = 0
       for (let i = ph.length - 1; i > 0 && steps < priceCols; i--, steps++) {
-        const cur = Number(ph[i].p)
-        const prev = Number(ph[i-1].p)
+        const cur = (ph[i] && typeof ph[i] === 'object' && 'p' in ph[i]) ? (ph[i].p == null ? NaN : Number(ph[i].p)) : Number(ph[i])
+        const prev = (ph[i-1] && typeof ph[i-1] === 'object' && 'p' in ph[i-1]) ? (ph[i-1].p == null ? NaN : Number(ph[i-1].p)) : Number(ph[i-1])
         if (Number.isNaN(cur) || Number.isNaN(prev)) continue
         if (cur < prev) cnt++
       }
@@ -448,8 +448,8 @@
           orderMode === 'downcount' ? downCount(bAgg) : (
           orderMode === 'downstreak' ? downStreak(bAgg) : upStreak(bAgg))))
         if (sb !== sa) return sb - sa
-        const aLast = (aAgg && aAgg.length) ? Number(aAgg[aAgg.length - 1].p) : NaN
-        const bLast = (bAgg && bAgg.length) ? Number(bAgg[bAgg.length - 1].p) : NaN
+        const aLast = (aAgg && aAgg.length && aAgg[aAgg.length - 1] && aAgg[aAgg.length - 1].p != null) ? Number(aAgg[aAgg.length - 1].p) : NaN
+        const bLast = (bAgg && bAgg.length && bAgg[bAgg.length - 1] && bAgg[bAgg.length - 1].p != null) ? Number(bAgg[bAgg.length - 1].p) : NaN
         if (!Number.isNaN(aLast) && !Number.isNaN(bLast) && bLast !== aLast) return bLast - aLast
         const ap = Number(a.pct || 0)
         const bp = Number(b.pct || 0)
@@ -482,9 +482,9 @@
           let c = 'muted'
           let text = ''
           let arrowHtml = ''
-          if (v && typeof v.p !== 'undefined') {
+          if (v && v.p != null) {
             const cur = Number(v.p)
-            const pn = prev && typeof prev.p !== 'undefined' ? Number(prev.p) : null
+            const pn = (prev && prev.p != null) ? Number(prev.p) : null
             if (!Number.isNaN(cur)) {
               if (pn != null && !Number.isNaN(pn)) {
                 if (cur > pn) arrowHtml = '<span class="arrow-up">↑</span>'
