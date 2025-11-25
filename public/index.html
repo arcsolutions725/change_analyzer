@@ -117,7 +117,7 @@
           </div>
         </div>
         <div class="section">
-          <div class="section-title">5m</div>
+          <div class="section-title">1m</div>
           <div class="layout">
             <div class="left">
               <table id="tableLeft2">
@@ -134,7 +134,7 @@
           </div>
         </div>
         <div class="section">
-          <div class="section-title">15m</div>
+          <div class="section-title">2m</div>
           <div class="layout">
             <div class="left">
               <table id="tableLeft3">
@@ -151,7 +151,7 @@
           </div>
         </div>
         <div class="section">
-          <div class="section-title">30m</div>
+          <div class="section-title">3m</div>
           <div class="layout">
             <div class="left">
               <table id="tableLeft4">
@@ -175,9 +175,9 @@
     const WS_PATH = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/stream'
     const sections = [
       { id: 1, intervalMs: 30000, theadLeft: document.getElementById('theadLeft1'), tbodyLeft: document.getElementById('tbodyLeft1'), theadRight: document.getElementById('theadRight1'), tbodyRight: document.getElementById('tbodyRight1'), state: new Map(), tick: 0, timer: null },
-      { id: 2, intervalMs: 300000, theadLeft: document.getElementById('theadLeft2'), tbodyLeft: document.getElementById('tbodyLeft2'), theadRight: document.getElementById('theadRight2'), tbodyRight: document.getElementById('tbodyRight2'), state: new Map(), tick: 0, timer: null },
-      { id: 3, intervalMs: 900000, theadLeft: document.getElementById('theadLeft3'), tbodyLeft: document.getElementById('tbodyLeft3'), theadRight: document.getElementById('theadRight3'), tbodyRight: document.getElementById('tbodyRight3'), state: new Map(), tick: 0, timer: null },
-      { id: 4, intervalMs: 1800000, theadLeft: document.getElementById('theadLeft4'), tbodyLeft: document.getElementById('tbodyLeft4'), theadRight: document.getElementById('theadRight4'), tbodyRight: document.getElementById('tbodyRight4'), state: new Map(), tick: 0, timer: null },
+      { id: 2, intervalMs: 60000, theadLeft: document.getElementById('theadLeft2'), tbodyLeft: document.getElementById('tbodyLeft2'), theadRight: document.getElementById('theadRight2'), tbodyRight: document.getElementById('tbodyRight2'), state: new Map(), tick: 0, timer: null },
+      { id: 3, intervalMs: 120000, theadLeft: document.getElementById('theadLeft3'), tbodyLeft: document.getElementById('tbodyLeft3'), theadRight: document.getElementById('theadRight3'), tbodyRight: document.getElementById('tbodyRight3'), state: new Map(), tick: 0, timer: null },
+      { id: 4, intervalMs: 180000, theadLeft: document.getElementById('theadLeft4'), tbodyLeft: document.getElementById('tbodyLeft4'), theadRight: document.getElementById('theadRight4'), tbodyRight: document.getElementById('tbodyRight4'), state: new Map(), tick: 0, timer: null },
     ]
     const statusEl = document.getElementById('status')
     const orderSwitch = document.getElementById('orderSwitch')
