@@ -270,7 +270,7 @@
         const group = slice.slice(Math.max(0, i - (ppm || pointsPerMinute)), i)
         let sum = 0, cnt = 0, ts = null
         for (const it of group) { const n = Number(it.p); if (!Number.isNaN(n)) { sum += n; cnt++; ts = it.ts } }
-        if (cnt > 0) res.push({ p: sum / cnt, ts })
+        if (cnt >= (ppm || pointsPerMinute)) res.push({ p: sum / cnt, ts })
         else res.push({ p: null, ts })
       }
       return res
