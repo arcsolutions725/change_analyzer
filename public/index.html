@@ -61,7 +61,7 @@
     .small { font-size: 12px; }
     .sticky-wrap { max-height: calc(100vh - 80px); }
     .sections-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .section { display: flex; flex-direction: column; overflow: auto; scrollbar-width: none;}
+    .section { display: flex; flex-direction: column;}
     .layout { display: flex; gap: 8px; }
     .left { flex: 0 0 auto; }
     .right { flex: 1 1 auto;}
@@ -100,7 +100,7 @@
     <div class="sticky-wrap">
       <div class="sections-grid">
         <div class="section">
-          <div class="section-title">30s</div>
+          <div class="section-title">5s</div>
           <div class="layout">
             <div class="left">
               <table id="tableLeft1">
@@ -116,57 +116,6 @@
             </div>
           </div>
         </div>
-        <div class="section">
-          <div class="section-title">5m</div>
-          <div class="layout">
-            <div class="left">
-              <table id="tableLeft2">
-                <thead id="theadLeft2"></thead>
-                <tbody id="tbodyLeft2"></tbody>
-              </table>
-            </div>
-            <div class="right">
-              <table id="tableRight2">
-                <thead id="theadRight2"></thead>
-                <tbody id="tbodyRight2"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <div class="section">
-          <div class="section-title">15m</div>
-          <div class="layout">
-            <div class="left">
-              <table id="tableLeft3">
-                <thead id="theadLeft3"></thead>
-                <tbody id="tbodyLeft3"></tbody>
-              </table>
-            </div>
-            <div class="right">
-              <table id="tableRight3">
-                <thead id="theadRight3"></thead>
-                <tbody id="tbodyRight3"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <div class="section">
-          <div class="section-title">30m</div>
-          <div class="layout">
-            <div class="left">
-              <table id="tableLeft4">
-                <thead id="theadLeft4"></thead>
-                <tbody id="tbodyLeft4"></tbody>
-              </table>
-            </div>
-            <div class="right">
-              <table id="tableRight4">
-                <thead id="theadRight4"></thead>
-                <tbody id="tbodyRight4"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -174,10 +123,7 @@
     const API = '/api/ticker24'
     const WS_PATH = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/stream'
     const sections = [
-      { id: 1, intervalMs: 30000, theadLeft: document.getElementById('theadLeft1'), tbodyLeft: document.getElementById('tbodyLeft1'), theadRight: document.getElementById('theadRight1'), tbodyRight: document.getElementById('tbodyRight1'), state: new Map(), tick: 0, timer: null },
-      { id: 2, intervalMs: 300000, theadLeft: document.getElementById('theadLeft2'), tbodyLeft: document.getElementById('tbodyLeft2'), theadRight: document.getElementById('theadRight2'), tbodyRight: document.getElementById('tbodyRight2'), state: new Map(), tick: 0, timer: null },
-      { id: 3, intervalMs: 900000, theadLeft: document.getElementById('theadLeft3'), tbodyLeft: document.getElementById('tbodyLeft3'), theadRight: document.getElementById('theadRight3'), tbodyRight: document.getElementById('tbodyRight3'), state: new Map(), tick: 0, timer: null },
-      { id: 4, intervalMs: 1800000, theadLeft: document.getElementById('theadLeft4'), tbodyLeft: document.getElementById('tbodyLeft4'), theadRight: document.getElementById('theadRight4'), tbodyRight: document.getElementById('tbodyRight4'), state: new Map(), tick: 0, timer: null },
+      { id: 1, intervalMs: 5000, theadLeft: document.getElementById('theadLeft1'), tbodyLeft: document.getElementById('tbodyLeft1'), theadRight: document.getElementById('theadRight1'), tbodyRight: document.getElementById('tbodyRight1'), state: new Map(), tick: 0, timer: null }
     ]
     const statusEl = document.getElementById('status')
     const orderSwitch = document.getElementById('orderSwitch')
@@ -190,6 +136,7 @@
     const trendWindow = 10
     const maxTrendHistory = 10
     const priceCols = 20
+    const pointsPerMinute = 12
     const state = new Map()
     let selectedSymbol = null
     const alertedNew = new Set()
@@ -312,6 +259,21 @@
       if (den === 0) return 0
       const slopePerMin = num / den
       return slopePerMin
+    }
+
+    function aggregateMinutePrices(ph, ppm, cols) {
+      if (!ph || ph.length === 0) return []
+      const res = []
+      const need = (ppm || pointsPerMinute) * (cols || priceCols)
+      const slice = ph.slice(-need)
+      for (let i = slice.length; i > 0 && res.length < (cols || priceCols); i -= (ppm || pointsPerMinute)) {
+        const group = slice.slice(Math.max(0, i - (ppm || pointsPerMinute)), i)
+        let sum = 0, cnt = 0, ts = null
+        for (const it of group) { const n = Number(it.p); if (!Number.isNaN(n)) { sum += n; cnt++; ts = it.ts } }
+        if (cnt > 0) res.push({ p: sum / cnt, ts })
+        else res.push({ p: null, ts })
+      }
+      return res
     }
 
     function notifyNew(symbol) {
@@ -437,9 +399,14 @@
           } catch {}
         })
         sec.tick++
-        renderSection(sec)
-        const ms = Date.now() - start
-        statusEl.textContent = 'Updated ' + new Date().toLocaleTimeString() + ' • ' + ms + 'ms'
+        if (sec.tick % pointsPerMinute === 0) {
+          renderSection(sec)
+          const ms = Date.now() - start
+          statusEl.textContent = 'Updated ' + new Date().toLocaleTimeString() + ' • ' + ms + 'ms'
+        } else {
+          const done = sec.tick % pointsPerMinute
+          statusEl.textContent = 'Collecting ' + done + '/' + pointsPerMinute
+        }
       } catch (e) {
         statusEl.textContent = 'Error' + (e && e.message ? (': ' + e.message) : '')
       }
@@ -470,42 +437,48 @@
         const bNew = (sec.tick >= trendWindow) && (bl < trendWindow)
         if (aNew && !bNew) return -1
         if (bNew && !aNew) return 1
-        const sa = orderMode === 'mixed' ? mixedScore(a.priceHistory) : (
-          orderMode === 'upcount' ? upCount(a.priceHistory) : (
-          orderMode === 'downcount' ? downCount(a.priceHistory) : (
-          orderMode === 'downstreak' ? downStreak(a.priceHistory) : upStreak(a.priceHistory))))
-        const sb = orderMode === 'mixed' ? mixedScore(b.priceHistory) : (
-          orderMode === 'upcount' ? upCount(b.priceHistory) : (
-          orderMode === 'downcount' ? downCount(b.priceHistory) : (
-          orderMode === 'downstreak' ? downStreak(b.priceHistory) : upStreak(b.priceHistory))))
+        const aAgg = aggregateMinutePrices(a.priceHistory, pointsPerMinute, priceCols)
+        const bAgg = aggregateMinutePrices(b.priceHistory, pointsPerMinute, priceCols)
+        const sa = orderMode === 'mixed' ? mixedScore(aAgg) : (
+          orderMode === 'upcount' ? upCount(aAgg) : (
+          orderMode === 'downcount' ? downCount(aAgg) : (
+          orderMode === 'downstreak' ? downStreak(aAgg) : upStreak(aAgg))))
+        const sb = orderMode === 'mixed' ? mixedScore(bAgg) : (
+          orderMode === 'upcount' ? upCount(bAgg) : (
+          orderMode === 'downcount' ? downCount(bAgg) : (
+          orderMode === 'downstreak' ? downStreak(bAgg) : upStreak(bAgg))))
         if (sb !== sa) return sb - sa
-        // Percent change tie-break for all modes, per user request
+        const aLast = (aAgg && aAgg.length) ? Number(aAgg[aAgg.length - 1].p) : NaN
+        const bLast = (bAgg && bAgg.length) ? Number(bAgg[bAgg.length - 1].p) : NaN
+        if (!Number.isNaN(aLast) && !Number.isNaN(bLast) && bLast !== aLast) return bLast - aLast
         const ap = Number(a.pct || 0)
         const bp = Number(b.pct || 0)
         if (bp !== ap) return bp - ap
         return Number(b.trend10 || 0) - Number(a.trend10 || 0)
       })
-      const top = rows.slice(0, 9)
+      const top = rows.slice(0, 30)
       const leftHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const pair = pairWithSlash(r.symbol)
         let countCell = ''
         if (orderMode === 'upcount') {
-          countCell = `<td class="num cell">${upCount(r.priceHistory)}</td>`
+          const agg = aggregateMinutePrices(r.priceHistory, pointsPerMinute, priceCols)
+          countCell = `<td class="num cell">${upCount(agg)}</td>`
         } else if (orderMode === 'downcount') {
-          countCell = `<td class="num cell">${downCount(r.priceHistory)}</td>`
+          const agg = aggregateMinutePrices(r.priceHistory, pointsPerMinute, priceCols)
+          countCell = `<td class="num cell">${downCount(agg)}</td>`
         }
         return `<tr class="row" data-symbol="${r.symbol}"><td class="num col-no">${i+1}</td><td class="col-pair copyable" data-pair="${pair}" title="Click to copy">${pair}</td>${countCell}</tr>`
       }).join('')
       const rightHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
-        const isNew = !(r.priceHistory && r.priceHistory.length >= priceCols)
         const phCells = []
-        const len = (r.priceHistory ? r.priceHistory.length : 0)
+        const agg = aggregateMinutePrices(r.priceHistory, pointsPerMinute, priceCols)
+        const len = agg.length
         for (let j = 1; j <= priceCols; j++) {
-          const idx = len - 1 - j
-          const v = idx >= 0 ? r.priceHistory[idx] : null
-          const prev = (idx - 1 >= 0) ? r.priceHistory[idx - 1] : null
+          const idx = len - j
+          const v = idx >= 0 ? agg[idx] : null
+          const prev = (idx - 1 >= 0) ? agg[idx - 1] : null
           let c = 'muted'
           let text = ''
           let arrowHtml = ''
