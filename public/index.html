@@ -78,8 +78,8 @@
     <div class="controls">
       <div class="segmented" id="orderSwitch">
         <button class="seg-option active" data-mode="streak">Up-streak</button>
-        <button class="seg-option" data-mode="downstreak">Down-streak</button>
         <button class="seg-option" data-mode="upcount">Up-count</button>
+        <button class="seg-option" data-mode="downstreak">Down-streak</button>
         <button class="seg-option" data-mode="downcount">Down-count</button>
         <button class="seg-option" data-mode="mixed">Mixed</button>
       </div>
@@ -623,9 +623,23 @@
       } catch {}
     }
 
+    function onRowDblClick(e) {
+      const tr = e.target.closest('tr.row')
+      if (!tr) return
+      const symbol = tr.getAttribute('data-symbol')
+      if (!symbol) return
+      setActive(symbol)
+      const text = pairUrl(symbol)
+      try { navigator.clipboard && navigator.clipboard.writeText(text) } catch {}
+      try { window.open(text, '_blank') } catch {}
+      statusEl.textContent = 'Copied and opened ' + text
+    }
+
     sections.forEach(sec => {
       sec.tbodyLeft.addEventListener('click', onRowClick)
       sec.tbodyRight.addEventListener('click', onRowClick)
+      sec.tbodyLeft.addEventListener('dblclick', onRowDblClick)
+      sec.tbodyRight.addEventListener('dblclick', onRowDblClick)
     })
 
     orderSwitch.addEventListener('click', (e) => {
