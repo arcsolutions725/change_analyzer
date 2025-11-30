@@ -37,6 +37,7 @@ async function initDb() {
   dbPool = mysql.createPool({ host: MYSQL_HOST, port: MYSQL_PORT, user: MYSQL_USER, password: MYSQL_PASSWORD, database: MYSQL_DB, waitForConnections: true, connectionLimit: 5 })
   try {
     await dbPool.query('CREATE TABLE IF NOT EXISTS prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, ts BIGINT NOT NULL, price DOUBLE NOT NULL, INDEX idx_symbol_ts (symbol, ts))')
+    await dbPool.query('CREATE TABLE IF NOT EXISTS agg_prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, bucket_ts BIGINT NOT NULL, interval_sec INT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_bucket_interval (symbol, bucket_ts, interval_sec))')
   } catch {}
 }
 initDb()
@@ -50,6 +51,46 @@ async function flushWrites() {
   try { await dbPool.query('INSERT INTO prices (symbol, ts, price) VALUES ' + placeholders, values.flat()) } catch {}
 }
 setInterval(flushWrites, 1000)
+
+const aggIntervals = [30000, 60000, 120000, 180000, 600000, 1800000, 3600000]
+let aggStates = new Map() // key: interval_ms -> Map(symbol -> { sum, count, startTs })
+for (const itv of aggIntervals) aggStates.set(itv, new Map())
+let aggWriteBuf = []
+function queueAggWrite(symbol, bucketTs, intervalMs, avg) {
+  aggWriteBuf.push({ symbol, bucketTs, intervalMs, avg })
+}
+async function flushAggWrites() {
+  if (!dbPool || aggWriteBuf.length === 0) return
+  const batch = aggWriteBuf.splice(0, aggWriteBuf.length)
+  const values = batch.map(r => [r.symbol, r.bucketTs, Math.floor(r.intervalMs/1000), r.avg])
+  const placeholders = values.map(() => '(?, ?, ?, ?)').join(',')
+  try {
+    await dbPool.query('INSERT INTO agg_prices (symbol, bucket_ts, interval_sec, price) VALUES ' + placeholders + ' ON DUPLICATE KEY UPDATE price = VALUES(price) ', values.flat())
+  } catch {}
+  try {
+    const msg = JSON.stringify({ type: 'agg', ts: Date.now(), data: batch.map(r => ({ symbol: r.symbol, ts: r.bucketTs, p: r.avg, intervalSec: Math.floor(r.intervalMs/1000) })) })
+    for (const ws of wsClients) {
+      if (ws.readyState === ws.OPEN) ws.send(msg)
+    }
+  } catch {}
+}
+setInterval(flushAggWrites, 1000)
+
+function updateAggregators(symbol, price, nowTs) {
+  for (const itv of aggIntervals) {
+    const m = aggStates.get(itv)
+    let st = m.get(symbol)
+    if (!st) {
+      st = { sum: 0, count: 0, startTs: nowTs - (nowTs % itv) }
+      m.set(symbol, st)
+    }
+    if (nowTs - st.startTs >= itv) {
+      if (st.count > 0) queueAggWrite(symbol, st.startTs, itv, st.sum / st.count)
+      st.sum = 0; st.count = 0; st.startTs = nowTs - (nowTs % itv)
+    }
+    st.sum += price; st.count += 1
+  }
+}
 
 function getReqToken(req) {
   try {
@@ -198,6 +239,40 @@ const server = http.createServer(async (req, res) => {
     }
     return
   }
+  if (reqPath.startsWith('/api/agg/latest')) {
+    if (!ensureAuth(req, res)) return
+    try {
+      const u = new URL('http://x' + req.url)
+      const intervalSec = Number(u.searchParams.get('intervalSec') || '60')
+      const limit = Number(u.searchParams.get('limit') || '20')
+      if (!dbPool) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify([])); return }
+      const rangeStart = Date.now() - (limit * intervalSec * 1000)
+      const [rows] = await dbPool.query('SELECT symbol, bucket_ts AS ts, price FROM agg_prices WHERE interval_sec = ? AND bucket_ts >= ? ORDER BY symbol, bucket_ts DESC', [intervalSec, rangeStart])
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify(rows.map(r => ({ symbol: r.symbol, ts: Number(r.ts), p: Number(r.price) }))))
+    } catch {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end('[]')
+    }
+    return
+  }
+  if (reqPath.startsWith('/api/agg/symbol')) {
+    if (!ensureAuth(req, res)) return
+    try {
+      const u = new URL('http://x' + req.url)
+      const intervalSec = Number(u.searchParams.get('intervalSec') || '60')
+      const symbol = u.searchParams.get('symbol') || ''
+      const limit = Number(u.searchParams.get('limit') || '20')
+      if (!dbPool || !symbol) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify([])); return }
+      const [rows] = await dbPool.query('SELECT bucket_ts AS ts, price FROM agg_prices WHERE symbol = ? AND interval_sec = ? ORDER BY bucket_ts DESC LIMIT ?', [symbol, intervalSec, limit])
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify(rows.map(r => ({ ts: Number(r.ts), p: Number(r.price) }))))
+    } catch {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end('[]')
+    }
+    return
+  }
   const filePath = path.join(publicDir, reqPath)
   fs.readFile(filePath, (err, data) => {
     if (err) {
@@ -257,6 +332,19 @@ async function pollAndBroadcast() {
     for (const ws of wsClients) {
       if (ws.readyState === ws.OPEN) ws.send(msg)
     }
+    const nowTs = Date.now()
+    if (Array.isArray(payload)) {
+      for (const it of payload) {
+        try {
+          const symbol = it.symbol
+          const price = it.lastPrice
+          if (symbol && typeof price !== 'undefined') {
+            queueWrite(symbol, nowTs, Number(price))
+            updateAggregators(symbol, Number(price), nowTs)
+          }
+        } catch {}
+      }
+    }
   } catch {}
 }
 
@@ -300,8 +388,19 @@ function connectMiniTickers() {
             const symbol = it.symbol || (it.s || '')
             const price = (it.price ?? it.p ?? it.lastPrice ?? null)
             if (symbol && typeof price !== 'undefined') queueWrite(symbol, nowTs, Number(price))
+            if (symbol && typeof price !== 'undefined') updateAggregators(symbol, Number(price), nowTs)
           } catch {}
         }
+        // broadcast closed buckets
+        try {
+          const closed = []
+          for (const itv of aggIntervals) {
+            const m = aggStates.get(itv)
+            for (const [sym, st] of m.entries()) {
+              // if bucket just closed, it was queued in updateAggregators; we broadcast periodically here from aggWriteBuf
+            }
+          }
+        } catch {}
       }
     } catch {}
   })

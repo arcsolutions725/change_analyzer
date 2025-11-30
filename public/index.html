@@ -84,6 +84,7 @@
         <button class="seg-option" data-mode="mixed">Mixed</button>
       </div>
       <span id="status" class="muted small">Idle</span>
+      <span id="streamTimers" class="muted small" style="margin-left:12px;"></span>
     </div>
   </header>
   <div class="toast-root" id="toastRoot"></div>
@@ -100,23 +101,6 @@
     <div class="sticky-wrap">
       <div class="sections-grid">
         <div class="section">
-          <div class="section-title">30s</div>
-          <div class="layout">
-            <div class="left">
-              <table id="tableLeft1">
-                <thead id="theadLeft1"></thead>
-                <tbody id="tbodyLeft1"></tbody>
-              </table>
-            </div>
-            <div class="right">
-              <table id="tableRight1">
-                <thead id="theadRight1"></thead>
-                <tbody id="tbodyRight1"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <div class="section">
           <div class="section-title">1m</div>
           <div class="layout">
             <div class="left">
@@ -129,40 +113,6 @@
               <table id="tableRight2">
                 <thead id="theadRight2"></thead>
                 <tbody id="tbodyRight2"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <div class="section">
-          <div class="section-title">2m</div>
-          <div class="layout">
-            <div class="left">
-              <table id="tableLeft3">
-                <thead id="theadLeft3"></thead>
-                <tbody id="tbodyLeft3"></tbody>
-              </table>
-            </div>
-            <div class="right">
-              <table id="tableRight3">
-                <thead id="theadRight3"></thead>
-                <tbody id="tbodyRight3"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <div class="section">
-          <div class="section-title">3m</div>
-          <div class="layout">
-            <div class="left">
-              <table id="tableLeft4">
-                <thead id="theadLeft4"></thead>
-                <tbody id="tbodyLeft4"></tbody>
-              </table>
-            </div>
-            <div class="right">
-              <table id="tableRight4">
-                <thead id="theadRight4"></thead>
-                <tbody id="tbodyRight4"></tbody>
               </table>
             </div>
           </div>
@@ -225,15 +175,14 @@
     const API = '/api/ticker24'
     const WS_PATH = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/stream'
     const sections = [
-      { id: 1, intervalMs: 30000, theadLeft: document.getElementById('theadLeft1'), tbodyLeft: document.getElementById('tbodyLeft1'), theadRight: document.getElementById('theadRight1'), tbodyRight: document.getElementById('tbodyRight1'), state: new Map(), tick: 0, timer: null },
       { id: 2, intervalMs: 60000, theadLeft: document.getElementById('theadLeft2'), tbodyLeft: document.getElementById('tbodyLeft2'), theadRight: document.getElementById('theadRight2'), tbodyRight: document.getElementById('tbodyRight2'), state: new Map(), tick: 0, timer: null },
-      { id: 3, intervalMs: 120000, theadLeft: document.getElementById('theadLeft3'), tbodyLeft: document.getElementById('tbodyLeft3'), theadRight: document.getElementById('theadRight3'), tbodyRight: document.getElementById('tbodyRight3'), state: new Map(), tick: 0, timer: null },
-      { id: 4, intervalMs: 180000, theadLeft: document.getElementById('theadLeft4'), tbodyLeft: document.getElementById('tbodyLeft4'), theadRight: document.getElementById('theadRight4'), tbodyRight: document.getElementById('tbodyRight4'), state: new Map(), tick: 0, timer: null },
       { id: 5, intervalMs: 600000, theadLeft: document.getElementById('theadLeft5'), tbodyLeft: document.getElementById('tbodyLeft5'), theadRight: document.getElementById('theadRight5'), tbodyRight: document.getElementById('tbodyRight5'), state: new Map(), tick: 0, timer: null },
       { id: 6, intervalMs: 1800000, theadLeft: document.getElementById('theadLeft6'), tbodyLeft: document.getElementById('tbodyLeft6'), theadRight: document.getElementById('theadRight6'), tbodyRight: document.getElementById('tbodyRight6'), state: new Map(), tick: 0, timer: null },
       { id: 7, intervalMs: 3600000, theadLeft: document.getElementById('theadLeft7'), tbodyLeft: document.getElementById('tbodyLeft7'), theadRight: document.getElementById('theadRight7'), tbodyRight: document.getElementById('tbodyRight7'), state: new Map(), tick: 0, timer: null },
     ]
+    const secIntervalSec = new Map([[2,60],[5,600],[6,1800],[7,3600]])
     const statusEl = document.getElementById('status')
+    const timersEl = document.getElementById('streamTimers')
     const orderSwitch = document.getElementById('orderSwitch')
     let orderMode = 'streak'
 
@@ -514,6 +463,31 @@
       } catch {}
     }
 
+    async function loadAggLatestForSection(sec) {
+      try {
+        const intervalSec = secIntervalSec.get(sec.id)
+        const res = await apiFetch('/api/agg/latest?intervalSec=' + intervalSec + '&limit=' + priceCols)
+        const arr = await res.json()
+        const items = Array.isArray(arr) ? arr : []
+        const grouped = new Map()
+        items.forEach(x => {
+          if (!(x && x.symbol)) return
+          if (!allowedFutures.has(spotToFutures(x.symbol))) return
+          const g = grouped.get(x.symbol) || []
+          g.push({ p: Number(x.p), ts: Number(x.ts) })
+          grouped.set(x.symbol, g)
+        })
+        for (const [symbol, list] of grouped.entries()) {
+          list.sort((a,b) => a.ts - b.ts)
+          let row = sec.state.get(symbol)
+          if (!row) { row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, trendHistory: [] }; sec.state.set(symbol, row) }
+          row.priceHistory = list.slice(-maxPriceHistory)
+        }
+        renderSection(sec)
+        sec.lastRefreshAt = Date.now()
+      } catch {}
+    }
+
     function renderSection(sec) {
       buildHeaders(sec)
       const rows = Array.from(sec.state.values())
@@ -539,7 +513,7 @@
         if (bp !== ap) return bp - ap
         return Number(b.trend10 || 0) - Number(a.trend10 || 0)
       })
-      const top = rows.slice(0, 9)
+      const top = rows.slice(0, 30)
       const leftHtml = top.map((r,i) => {
         const cls = Number(r.pct) >= 0 ? 'pos' : 'neg'
         const pair = pairWithSlash(r.symbol)
@@ -596,14 +570,20 @@
     function startPollingSections() {
       sections.forEach(sec => {
         if (sec.timer) clearInterval(sec.timer)
-        fetchTickersFor(sec)
-        sec.timer = setInterval(() => fetchTickersFor(sec), sec.intervalMs)
+        loadAggLatestForSection(sec)
+        sec.lastRefreshAt = Date.now()
+        sec.timer = setInterval(() => loadAggLatestForSection(sec), sec.intervalMs)
       })
+    }
+
+    function startPolling() {
+      startPollingSections()
     }
 
     function startWebSocket() {
       try {
-        const ws = new WebSocket(WS_PATH)
+        const sockUrl = WS_PATH + (authToken ? ('?auth=' + encodeURIComponent(authToken)) : '')
+        const ws = new WebSocket(sockUrl)
         ws.onopen = () => { statusEl.textContent = 'Streaming' }
         ws.onmessage = (ev) => {
           try {
@@ -643,11 +623,25 @@
               })
               tick++
               render()
+            } else if (msg.type === 'agg') {
+              const items = Array.isArray(msg.data) ? msg.data : []
+              for (const it of items) {
+                const secId = [...secIntervalSec.entries()].find(([id, s]) => s === Number(it.intervalSec))?.[0]
+                if (!secId) continue
+                const sec = sections.find(s => s.id === secId)
+                if (!sec) continue
+                if (!allowedFutures.has(spotToFutures(it.symbol))) continue
+                let row = sec.state.get(it.symbol)
+                if (!row) { row = { symbol: it.symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, trendHistory: [] }; sec.state.set(it.symbol, row) }
+                row.priceHistory.push({ p: Number(it.p), ts: Number(it.ts) })
+                if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
+                renderSection(sec)
+              }
             }
           } catch {}
         }
-        ws.onclose = () => { statusEl.textContent = 'Disconnected'; startPolling() }
-        ws.onerror = () => { statusEl.textContent = 'WS Error'; startPolling() }
+        ws.onclose = () => { statusEl.textContent = 'Disconnected'; startPolling(); setTimeout(startWebSocket, 2000) }
+        ws.onerror = () => { statusEl.textContent = 'WS Error'; startPolling(); setTimeout(startWebSocket, 2000) }
       } catch {
         startPolling()
       }
@@ -714,9 +708,45 @@
       } catch {}
     }
 
+    function labelForIntervalSec(s) {
+      if (s < 60) return s + 's'
+      if (s % 3600 === 0) return (s/3600) + 'h'
+      return (s/60) + 'm'
+    }
+
+    function fmtRemaining(ms) {
+      if (ms < 0) ms = 0
+      const s = Math.floor(ms/1000)
+      const m = Math.floor(s/60)
+      const rs = s % 60
+      if (m === 0) return rs + 's'
+      return m + ':' + String(rs).padStart(2,'0')
+    }
+
+    function renderTimers() {
+      try {
+        const parts = []
+        sections.forEach(sec => {
+          const secS = secIntervalSec.get(sec.id)
+          const label = labelForIntervalSec(secS)
+          const last = sec.lastRefreshAt || Date.now()
+          const remain = sec.intervalMs - (Date.now() - last)
+          parts.push(label + ' ' + fmtRemaining(remain))
+        })
+        timersEl.textContent = parts.join('  ·  ')
+      } catch {}
+    }
+
+    function startTimerDisplay() {
+      renderTimers()
+      setInterval(renderTimers, 1000)
+    }
+
     async function initialize() {
       await loadFuturesAllowed()
       startPollingSections()
+      startWebSocket()
+      startTimerDisplay()
     }
 
     async function tryLogin(password) {
