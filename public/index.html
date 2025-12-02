@@ -183,6 +183,15 @@
     const secIntervalSec = new Map([[2,60],[5,600],[6,1800],[7,3600]])
     const statusEl = document.getElementById('status')
     const timersEl = document.getElementById('streamTimers')
+    const pendingSections = new Set()
+    let rafId = null
+    function scheduleRender(sec) {
+      pendingSections.add(sec)
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        try { pendingSections.forEach(s => renderSection(s)) } finally { pendingSections.clear(); rafId = null }
+      })
+    }
     const orderSwitch = document.getElementById('orderSwitch')
     let orderMode = 'streak'
 
@@ -483,7 +492,7 @@
           if (!row) { row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, trendHistory: [] }; sec.state.set(symbol, row) }
           row.priceHistory = list.slice(-maxPriceHistory)
         }
-        renderSection(sec)
+        scheduleRender(sec)
         sec.lastRefreshAt = Date.now()
       } catch {}
     }
@@ -588,42 +597,7 @@
         ws.onmessage = (ev) => {
           try {
             const msg = JSON.parse(ev.data)
-            if (msg.type === 'miniTickers') {
-              const data = msg.data
-              const items = Array.isArray(data) ? data : [data]
-              const filtered = items.filter(x => x.symbol && x.symbol.endsWith('USDT') && allowedFutures.has(spotToFutures(x.symbol)))
-              filtered.forEach(x => {
-                const symbol = x.symbol
-                const lastPrice = x.price
-                const pct = (x.zonedRate ?? x.rate)
-                const amount = x.quantity || x.volume || ''
-                let row = state.get(symbol)
-          if (!row) {
-            row = { symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, trendHistory: [] }
-            state.set(symbol, row)
-            if (tick >= trendWindow) notifyNew(symbol)
-          }
-          const now = Date.now()
-          row.priceHistory.push({ p: Number(lastPrice), ts: now })
-          if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
-          row.lastPrice = lastPrice
-          row.pct = pct
-          row.amount = amount
-          row.history.push(pct)
-          if (row.history.length > maxHistory) row.history.shift()
-          const prevT = row.trend10
-          const intervalMs = 30000
-          const tNow = computeTrendFromPct(row.history, intervalMs)
-          if (tNow != null) {
-            row.trend10 = tNow
-            row.prevTrend10 = prevT
-            row.trendHistory.push(row.trend10)
-            if (row.trendHistory.length > maxTrendHistory) row.trendHistory.shift()
-          }
-              })
-              tick++
-              render()
-            } else if (msg.type === 'agg') {
+            if (msg.type === 'agg') {
               const items = Array.isArray(msg.data) ? msg.data : []
               for (const it of items) {
                 const secId = [...secIntervalSec.entries()].find(([id, s]) => s === Number(it.intervalSec))?.[0]
@@ -635,7 +609,7 @@
                 if (!row) { row = { symbol: it.symbol, lastPrice: null, pct: null, amount: null, history: [], priceHistory: [], trend10: 0, prevTrend10: null, trendHistory: [] }; sec.state.set(it.symbol, row) }
                 row.priceHistory.push({ p: Number(it.p), ts: Number(it.ts) })
                 if (row.priceHistory.length > maxPriceHistory) row.priceHistory.shift()
-                renderSection(sec)
+                scheduleRender(sec)
               }
             }
           } catch {}

@@ -4,18 +4,26 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "mysql2": "^3.9.7"
   },
   "scripts": {
     "start": "node server.js",
-    "build:exe": "pkg server.js --targets node18-win-x64 --output dist/change-analyzer.exe"
+    "build:exe": "pkg server.js --targets node18-win-x64 --output dist/change-analyzer.exe",
+    "build:ui": "npm --prefix ui run build",
+    "start:prod": "npm --prefix ui run build && node server.js",
+    "pm2:start": "npm --prefix ui run build && npx pm2 start server.js --name change-analyzer --time",
+    "pm2:restart": "npm --prefix ui run build && npx pm2 restart change-analyzer || npx pm2 start server.js --name change-analyzer --time",
+    "pm2:stop": "npx pm2 stop change-analyzer || true",
+    "pm2:logs": "npx pm2 logs change-analyzer"
+  },
+  "devDependencies": {
+    "pm2": "^5.3.0",
+    "pkg": "^5.8.1"
   },
   "pkg": {
     "assets": [
       "public/**/*"
     ]
-  },
-  "devDependencies": {
-    "pkg": "^5.8.1"
   }
 }

@@ -23,6 +23,7 @@ function loadDotEnv(file = path.join(runtimeDir, '.env')) {
 }
 loadDotEnv()
 const publicDir = path.join(__dirname, 'public')
+const reactDistDir = path.join(__dirname, 'ui', 'dist')
 const port = process.env.PORT || 5173
 const APP_PASSWORD = process.env.APP_PASSWORD || null
 const AUTH_TOKEN = process.env.AUTH_TOKEN || APP_PASSWORD || null
@@ -36,8 +37,9 @@ async function initDb() {
   if (!MYSQL_HOST || !MYSQL_USER || !MYSQL_DB) return
   dbPool = mysql.createPool({ host: MYSQL_HOST, port: MYSQL_PORT, user: MYSQL_USER, password: MYSQL_PASSWORD, database: MYSQL_DB, waitForConnections: true, connectionLimit: 5 })
   try {
-    await dbPool.query('CREATE TABLE IF NOT EXISTS prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, ts BIGINT NOT NULL, price DOUBLE NOT NULL, INDEX idx_symbol_ts (symbol, ts))')
+    await dbPool.query('CREATE TABLE IF NOT EXISTS prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, ts BIGINT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_ts (symbol, ts))')
     await dbPool.query('CREATE TABLE IF NOT EXISTS agg_prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, bucket_ts BIGINT NOT NULL, interval_sec INT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_bucket_interval (symbol, bucket_ts, interval_sec))')
+    try { await dbPool.query('ALTER TABLE prices ADD UNIQUE KEY uniq_symbol_ts (symbol, ts)') } catch {}
   } catch {}
 }
 initDb()
@@ -48,7 +50,7 @@ async function flushWrites() {
   const batch = writeBuf.splice(0, writeBuf.length)
   const values = batch.map(r => [r.symbol, r.ts, r.p])
   const placeholders = values.map(() => '(?, ?, ?)').join(',')
-  try { await dbPool.query('INSERT INTO prices (symbol, ts, price) VALUES ' + placeholders, values.flat()) } catch {}
+  try { await dbPool.query('INSERT INTO prices (symbol, ts, price) VALUES ' + placeholders + ' ON DUPLICATE KEY UPDATE price = VALUES(price)', values.flat()) } catch {}
 }
 setInterval(flushWrites, 1000)
 
@@ -75,6 +77,26 @@ async function flushAggWrites() {
   } catch {}
 }
 setInterval(flushAggWrites, 1000)
+
+function isUsdtSymbol(sym) {
+  try {
+    if (typeof sym !== 'string') return false
+    const s = sym.toUpperCase()
+    return s.endsWith('USDT') || s.endsWith('_USDT')
+  } catch { return false }
+}
+
+const KEEP_AGG_COUNT = 20
+function scheduleAggCleanup() {
+  if (!dbPool) return
+  const now = Date.now()
+  const secList = [30, 60, 120, 180, 600, 1800, 3600]
+  Promise.all(secList.map(async (s) => {
+    const cutoff = now - (KEEP_AGG_COUNT * s * 1000)
+    try { await dbPool.query('DELETE FROM agg_prices WHERE interval_sec = ? AND bucket_ts < ?', [s, cutoff]) } catch {}
+  })).catch(()=>{})
+}
+setInterval(scheduleAggCleanup, 120000)
 
 function updateAggregators(symbol, price, nowTs) {
   for (const itv of aggIntervals) {
@@ -273,11 +295,21 @@ const server = http.createServer(async (req, res) => {
     }
     return
   }
-  const filePath = path.join(publicDir, reqPath)
+  let filePath = path.join(reactDistDir, reqPath)
   fs.readFile(filePath, (err, data) => {
     if (err) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' })
-      res.end('Not Found')
+      filePath = path.join(publicDir, reqPath)
+      fs.readFile(filePath, (err2, data2) => {
+        if (err2) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' })
+          res.end('Not Found')
+          return
+        }
+        const ext2 = path.extname(filePath).toLowerCase()
+        const types2 = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json' }
+        res.writeHead(200, { 'Content-Type': types2[ext2] || 'application/octet-stream' })
+        res.end(data2)
+      })
       return
     }
     const ext = path.extname(filePath).toLowerCase()
@@ -338,8 +370,9 @@ async function pollAndBroadcast() {
         try {
           const symbol = it.symbol
           const price = it.lastPrice
-          if (symbol && typeof price !== 'undefined') {
-            queueWrite(symbol, nowTs, Number(price))
+          const fut = spotToFutures(symbol)
+          if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut)) {
+            queueWrite(fut, nowTs, Number(price))
             updateAggregators(symbol, Number(price), nowTs)
           }
         } catch {}
@@ -387,8 +420,9 @@ function connectMiniTickers() {
           try {
             const symbol = it.symbol || (it.s || '')
             const price = (it.price ?? it.p ?? it.lastPrice ?? null)
-            if (symbol && typeof price !== 'undefined') queueWrite(symbol, nowTs, Number(price))
-            if (symbol && typeof price !== 'undefined') updateAggregators(symbol, Number(price), nowTs)
+            const fut = spotToFutures(symbol)
+            if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut)) queueWrite(fut, nowTs, Number(price))
+            if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut)) updateAggregators(symbol, Number(price), nowTs)
           } catch {}
         }
         // broadcast closed buckets
@@ -414,3 +448,34 @@ function connectMiniTickers() {
 }
 
 connectMiniTickers()
+function spotToFutures(symbol) {
+  try {
+    const s = String(symbol).toUpperCase()
+    if (s.includes('_')) return s
+    const q = 'USDT'
+    if (s.endsWith(q)) return s.slice(0, -q.length) + '_' + q
+    return s
+  } catch { return String(symbol).toUpperCase() }
+}
+
+const allowedFutures = new Set()
+function refreshAllowedFutures() {
+  try {
+    https.get('https://contract.mexc.com/api/v1/contract/detail', (upstream) => {
+      const chunks = []
+      upstream.on('data', (c) => chunks.push(c))
+      upstream.on('end', () => {
+        try {
+          const body = Buffer.concat(chunks).toString('utf8')
+          const parsed = JSON.parse(body)
+          const list = Array.isArray(parsed.data) ? parsed.data : []
+          const filtered = list.filter(item => item && item.settleCoin === 'USDT')
+          const next = new Set(filtered.map(item => item.symbol))
+          allowedFutures.clear(); next.forEach(s => allowedFutures.add(s))
+        } catch {}
+      })
+    }).on('error', () => {})
+  } catch {}
+}
+refreshAllowedFutures()
+setInterval(refreshAllowedFutures, 10 * 60 * 1000)
