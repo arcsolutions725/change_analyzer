@@ -37,10 +37,14 @@ async function initDb() {
   if (!MYSQL_HOST || !MYSQL_USER || !MYSQL_DB) return
   dbPool = mysql.createPool({ host: MYSQL_HOST, port: MYSQL_PORT, user: MYSQL_USER, password: MYSQL_PASSWORD, database: MYSQL_DB, waitForConnections: true, connectionLimit: 5 })
   try {
+    await dbPool.query('SELECT 1')
     await dbPool.query('CREATE TABLE IF NOT EXISTS prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, ts BIGINT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_ts (symbol, ts))')
     await dbPool.query('CREATE TABLE IF NOT EXISTS agg_prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, bucket_ts BIGINT NOT NULL, interval_sec INT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_bucket_interval (symbol, bucket_ts, interval_sec))')
     try { await dbPool.query('ALTER TABLE prices ADD UNIQUE KEY uniq_symbol_ts (symbol, ts)') } catch {}
-  } catch {}
+    console.log('DB initialized')
+  } catch (e) {
+    try { console.error('DB init error', e && e.message ? e.message : String(e)) } catch {}
+  }
 }
 initDb()
 let writeBuf = []
