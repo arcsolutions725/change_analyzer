@@ -299,6 +299,24 @@ const server = http.createServer(async (req, res) => {
     }
     return
   }
+  if (reqPath === '/api/admin/init-db') {
+    if (!ensureAuth(req, res)) return
+    if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method Not Allowed' })); return }
+    try {
+      if (!dbPool) { res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ error: 'DB not ready' })); return }
+      await dbPool.query('TRUNCATE TABLE prices')
+      await dbPool.query('TRUNCATE TABLE agg_prices')
+      aggStates = new Map(); for (const itv of aggIntervals) aggStates.set(itv, new Map())
+      writeBuf = []
+      aggWriteBuf = []
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify({ ok: true }))
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify({ error: 'Init failed' }))
+    }
+    return
+  }
   let filePath = path.join(reactDistDir, reqPath)
   fs.readFile(filePath, (err, data) => {
     if (err) {

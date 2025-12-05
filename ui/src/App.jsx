@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import './index.css'
 
 const intervals = [
@@ -19,13 +19,13 @@ function pairUrl(symbol) {
 }
 function onPairClick(e, symbol) {
   const url = pairUrl(symbol)
-  try { navigator.clipboard && navigator.clipboard.writeText(url) } catch {}
-  if (e.ctrlKey) { try { window.open(url, '_blank') } catch {} }
+  try { navigator.clipboard && navigator.clipboard.writeText(url) } catch { void 0 }
+  if (e.ctrlKey) { try { window.open(url, '_blank') } catch { void 0 } }
 }
 function onRowClick(e, symbol) {
   const url = pairUrl(symbol)
-  try { navigator.clipboard && navigator.clipboard.writeText(url) } catch {}
-  if (e.ctrlKey) { try { window.open(url, '_blank') } catch {} }
+  try { navigator.clipboard && navigator.clipboard.writeText(url) } catch { void 0 }
+  if (e.ctrlKey) { try { window.open(url, '_blank') } catch { void 0 } }
 }
 
 function upCount(ph) {
@@ -100,13 +100,13 @@ function useAgg(intervalSec, token, onRefresh) {
           hist.sort((a,b) => a.ts - b.ts)
           out.push({ symbol, history: hist })
         }
-        if (alive) { setRows(out); try { onRefresh && onRefresh(intervalSec, Date.now()) } catch {} }
-      } catch {}
+        if (alive) { setRows(out); try { onRefresh && onRefresh(intervalSec, Date.now()) } catch { void 0 } }
+      } catch { void 0 }
     }
     load()
     timerRef.current = setInterval(load, intervalSec * 1000)
     return () => { alive = false; if (timerRef.current) clearInterval(timerRef.current) }
-  }, [intervalSec, token])
+  }, [intervalSec, token, onRefresh])
 
   useEffect(() => {
     let ws
@@ -131,13 +131,13 @@ function useAgg(intervalSec, token, onRefresh) {
               }
               return Array.from(map.entries()).map(([symbol, history]) => ({ symbol, history }))
             })
-            try { onRefresh && onRefresh(intervalSec, Date.now()) } catch {}
+            try { onRefresh && onRefresh(intervalSec, Date.now()) } catch { void 0 }
           }
-        } catch {}
+        } catch { void 0 }
       }
-    } catch {}
-    return () => { try { ws && ws.close() } catch {} }
-  }, [intervalSec, token])
+    } catch { void 0 }
+    return () => { try { ws && ws.close() } catch { void 0 } }
+  }, [intervalSec, token, onRefresh])
 
   return rows
 }
@@ -219,24 +219,11 @@ export default function App() {
     try { return localStorage.getItem('authToken') || null } catch { return null }
   })
   const [pw, setPw] = useState('')
-  const [lastMap, setLastMap] = useState({})
   const [selectedSymbol, setSelectedSymbol] = useState(null)
 
-  function onRefresh(intervalSec, ts) {
-    setLastMap(prev => Object.assign({}, prev, { [intervalSec]: ts }))
-  }
+  const onRefresh = useCallback(() => {}, [])
 
-  function fmtRemain(intervalSec) {
-    const last = lastMap[intervalSec] || Date.now()
-    const ms = intervalSec * 1000 - (Date.now() - last)
-    const s = Math.max(0, Math.floor(ms/1000))
-    if (intervalSec < 3600) {
-      const m = Math.floor(s/60), rs = s % 60
-      return (m ? m + 'm ' : '') + rs + 's'
-    }
-    const h = Math.floor(s/3600), rm = Math.floor((s%3600)/60), rs = s % 60
-    return h + 'h ' + rm + 'm ' + rs + 's'
-  }
+  
 
   async function submitLogin() {
     try {
@@ -244,8 +231,24 @@ export default function App() {
       if (!res.ok) return
       const data = await res.json()
       const tok = data && data.token
-      if (tok) { try { localStorage.setItem('authToken', tok) } catch {}; setToken(tok) }
-    } catch {}
+      if (tok) { try { localStorage.setItem('authToken', tok) } catch { void 0 }; setToken(tok) }
+    } catch { void 0 }
+  }
+
+  async function initDb() {
+    try {
+      const ok = typeof window !== 'undefined' ? window.confirm('This will truncate DB tables. Proceed?') : false
+      if (!ok) return
+      const headers = { 'Content-Type': 'application/json' }
+      if (token) headers['Authorization'] = 'Bearer ' + token
+      const res = await fetch('/api/admin/init-db', { method: 'POST', headers })
+      if (!res.ok) { alert('Init failed'); return }
+      try { const data = await res.json(); if (!(data && data.ok)) { alert('Init failed'); return } } catch { void 0 }
+      alert('Database initialized')
+      setSelectedSymbol(null)
+    } catch {
+      alert('Init failed')
+    }
   }
 
   return (
@@ -261,10 +264,14 @@ export default function App() {
       )}
       <header className="sticky-wrap">
         <div className="toolbar">
-          <div className="brand">MEXC Future Mini Tickers</div>
-          {['streak','upcount','downstreak','downcount','mixed'].map(m => (
-            <button key={m} className={'seg-option' + (orderMode===m?' active':'')} onClick={() => setOrderMode(m)}>{m==='streak'?'Up-streak':m==='downstreak'?'Down-streak':m==='upcount'?'Up-count':m==='downcount'?'Down-count':'Mixed'}</button>
-          ))}
+          <div className="brand">Keep Ruls for Success!</div>
+          <button className={'seg-option' + (orderMode==='streak'?' active':'')} onClick={() => setOrderMode('streak')}>Up-streak</button>
+          <button className={'seg-option' + (orderMode==='downstreak'?' active':'')} onClick={() => setOrderMode('downstreak')}>Down-streak</button>
+          <span style={{ width: 6 }}></span>
+          <button className={'seg-option' + (orderMode==='upcount'?' active':'')} onClick={() => setOrderMode('upcount')}>Up-count</button>
+          <button className={'seg-option' + (orderMode==='downcount'?' active':'')} onClick={() => setOrderMode('downcount')}>Down-count</button>
+          <div style={{ marginLeft: 'auto' }}></div>
+          <button className={'seg-option'} onClick={initDb}>Init DB</button>
         </div>
       </header>
       <div className="sections-grid">
