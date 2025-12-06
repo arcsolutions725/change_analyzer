@@ -67,17 +67,17 @@ button:focus-visible {
   }
 }
 body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif; background:#0f1115; color:#e6e6e6 }
-.container { padding: 12px }
-.sections-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px }
+.container { padding: 8px }
+.sections-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 20px }
 @media (max-width: 1400px) { .sections-grid { grid-template-columns: 1fr } }
-.section { border:1px solid #2a3140; border-radius:8px; padding:8px; background:#141821; width: 99%; overflow: scroll; scrollbar-width: none;}
-.section-title { font-weight:600; margin-bottom:8px }
+.section { border:1px solid #2a3140; border-radius:8px; padding:6px; background:#141821; width: 99%; overflow: scroll; scrollbar-width: none;}
+.section-title { font-weight:600; margin-bottom:8px; font-size:14px }
 .layout { display:grid; grid-template-columns: 280px 1fr; gap:8px }
 table { width:100%; border-collapse: collapse }
-th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6 }
-.col-no { width: 36px }
-.col-pair { width: 180px }
-.cell { width: 100px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; font-size:14px }
+.col-no { width: 32px }
+.col-pair { width: 160px }
+.cell { width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .rightScroller { overflow-x: auto }
 .right table { table-layout: fixed; min-width: 2000px }
 .right { border-left: 1px solid #212633; padding-left: 8px }
@@ -88,8 +88,8 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6 }
 .muted { color:#8a8f9c }
 .pos { color:#17c964 }
 .neg { color:#ff4d4f }
-.toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px }
+.toolbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:8px }
 .brand { font-weight:700; font-size:18px; margin-right:12px }
 .timers { margin-left:auto; font-size:12px; color:#8a8f9c }
-.seg-option { padding:6px 12px; border-radius:999px; border:1px solid #2a3140; background:#1a1f2b; color:#e6e6e6; cursor:pointer }
+.seg-option { padding:6px 12px; border-radius:999px; border:1px solid #2a3140; background:#1a1f2b; color:#e6e6e6; cursor:pointer; font-size:14px }
 .seg-option.active { background:#17c964; color:#0f1115 }
