@@ -65,6 +65,8 @@ function useMetrics(windowSec, token) {
   const [highlightSet, setHighlightSet] = useState(new Set())
   // lastRefreshAt was replaced by nextRefreshTs flow; kept only nextRefreshTs
   const [nextRefreshTs, setNextRefreshTs] = useState(null)
+  const countsRef = useRef(new Map())
+  const [rankCounts, setRankCounts] = useState({})
 
   useEffect(() => {
     authTokenRef.current = token || null
@@ -101,6 +103,12 @@ function useMetrics(windowSec, token) {
               setHighlightSet(ns)
               prevTopRef.current = new Set(topSymbols)
             }
+            const m = countsRef.current || new Map()
+            const topSet = new Set(topSymbols)
+            for (const s of topSymbols) { m.set(s, Number(m.get(s) || 0) + 1) }
+            for (const [sym] of Array.from(m.entries())) { if (!topSet.has(sym)) m.set(sym, 0) }
+            countsRef.current = m
+            setRankCounts(Object.fromEntries(m.entries()))
           } catch { void 0 }
         }
       } catch { void 0 }
@@ -113,14 +121,22 @@ function useMetrics(windowSec, token) {
     return () => { alive = false; if (timerRef.current) clearInterval(timerRef.current) }
   }, [windowSec, token])
 
-  return { rows, highlightSet, nextRefreshTs }
+  return { rows, highlightSet, nextRefreshTs, rankCounts }
 }
 
-function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbol }) {
-  const { rows, highlightSet, nextRefreshTs } = useMetrics(windowSec, token)
+function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbol, ignoredSet, onRequestIgnore }) {
+  const { rows, highlightSet, nextRefreshTs, rankCounts } = useMetrics(windowSec, token)
   const [remainSec, setRemainSec] = useState(0)
-  function handleRowClick(e, symbol) { onSelectSymbol(symbol); onRowClick(e, symbol) }
+  const pressTimerRef = useRef(null)
+  const didLongPressRef = useRef(false)
+  function handleRowClick(e, symbol) { if (didLongPressRef.current) { didLongPressRef.current = false; return } onSelectSymbol(symbol); onRowClick(e, symbol) }
   function handlePairClick(e, symbol) { onSelectSymbol(symbol); onPairClick(e, symbol) }
+  function startPress(symbol) {
+    clearTimeout(pressTimerRef.current)
+    didLongPressRef.current = false
+    pressTimerRef.current = setTimeout(() => { didLongPressRef.current = true; onRequestIgnore(symbol) }, 600)
+  }
+  function endPress() { clearTimeout(pressTimerRef.current); pressTimerRef.current = null }
   useEffect(() => {
     function update() {
       if (nextRefreshTs != null) {
@@ -138,15 +154,15 @@ function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbo
       <table>
         <thead>
           <tr>
-            <th className="nowrap col-no">No</th>
+            <th className="nowrap col-no">Count</th>
             <th className="nowrap col-pair">Pair</th>
             <th className="nowrap cell">Change %</th>
           </tr>
         </thead>
         <tbody>
-          {rows.slice(0,20).map((r,i) => (
-            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new' : '')} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
-              <td className="num col-no">{i+1}</td>
+          {rows.filter(rr => !(ignoredSet && ignoredSet.has(rr.symbol))).slice(0,20).map((r) => (
+            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new' : '')} onMouseDown={()=>startPress(r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
+              <td className="num col-no">{Number((rankCounts && rankCounts[r.symbol]) || 0)}</td>
               <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>{r.symbol.replace('_','/')}</td>
               {(() => {
                 const cls = (Number(r.minTs) < Number(r.maxTs)) ? 'pos' : (Number(r.minTs) > Number(r.maxTs) ? 'neg' : 'muted')
@@ -178,6 +194,13 @@ export default function App() {
       return Array.isArray(arr) ? arr.map(x => (typeof x === 'string' ? { text: x, status: 'current' } : { text: String(x && x.text || ''), status: ['achieved','current','not_achieved'].includes(String(x && x.status)) ? String(x.status) : 'current' })) : []
     } catch { return [] }
   })
+  const [ignoredTokens, setIgnoredTokens] = useState(() => {
+    try {
+      const t = localStorage.getItem('ignoredTokens')
+      const arr = t ? JSON.parse(t) : []
+      return Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : []
+    } catch { return [] }
+  })
   const [rules, setRules] = useState(() => {
     try {
       const t = localStorage.getItem('rules')
@@ -190,12 +213,22 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem('missions', JSON.stringify(missions)) } catch { void 0 }
   }, [missions])
+  useEffect(() => {
+    try { localStorage.setItem('ignoredTokens', JSON.stringify(ignoredTokens)) } catch { void 0 }
+  }, [ignoredTokens])
   const [showRuleDlg, setShowRuleDlg] = useState(false)
   const [showMissionDlg, setShowMissionDlg] = useState(false)
+  const [showIgnoredDlg, setShowIgnoredDlg] = useState(false)
   const [draftRules, setDraftRules] = useState([])
   const [draftMissions, setDraftMissions] = useState([])
+  const [draftIgnored, setDraftIgnored] = useState([])
   const [newRuleText, setNewRuleText] = useState('')
   const [newMissionText, setNewMissionText] = useState('')
+  const [newIgnoredText, setNewIgnoredText] = useState('')
+  const [showConfirmIgnoreDlg, setShowConfirmIgnoreDlg] = useState(false)
+  const [confirmIgnoreSymbol, setConfirmIgnoreSymbol] = useState(null)
+  const [toastText, setToastText] = useState('')
+  const toastTimerRef = useRef(null)
   function openRuleManager() {
     setDraftRules(Array.isArray(rules) ? [...rules] : [])
     setNewRuleText('')
@@ -206,11 +239,19 @@ export default function App() {
     setNewMissionText('')
     setShowMissionDlg(true)
   }
+  function openIgnoredManager() {
+    setDraftIgnored(Array.isArray(ignoredTokens) ? [...ignoredTokens] : [])
+    setNewIgnoredText('')
+    setShowIgnoredDlg(true)
+  }
   function closeRuleManager() {
     setShowRuleDlg(false)
   }
   function closeMissionManager() {
     setShowMissionDlg(false)
+  }
+  function closeIgnoredManager() {
+    setShowIgnoredDlg(false)
   }
   function saveRuleManager() {
     setRules(draftRules)
@@ -219,6 +260,12 @@ export default function App() {
   function saveMissionManager() {
     setMissions(draftMissions)
     setShowMissionDlg(false)
+  }
+  function saveIgnoredManager() {
+    const uniq = Array.from(new Set(draftIgnored.filter(x => String(x).trim())))
+    setIgnoredTokens(uniq)
+    setShowIgnoredDlg(false)
+    try { uploadIgnoredTokens(uniq) } catch (e) { void e }
   }
   function updateDraftRule(i, text) {
     setDraftRules(prev => prev.map((r, idx) => idx === i ? text : r))
@@ -236,6 +283,12 @@ export default function App() {
   function deleteDraftMission(i) {
     setDraftMissions(prev => prev.filter((_, idx) => idx !== i))
   }
+  function updateDraftIgnored(i, text) {
+    setDraftIgnored(prev => prev.map((r, idx) => idx === i ? String(text) : r))
+  }
+  function deleteDraftIgnored(i) {
+    setDraftIgnored(prev => prev.filter((_, idx) => idx !== i))
+  }
   function addDraftRule() {
     const t = String(newRuleText || '').trim()
     if (!t) return
@@ -248,6 +301,83 @@ export default function App() {
     setDraftMissions(prev => [...prev, { text: t, status: 'current' }])
     setNewMissionText('')
   }
+  function addDraftIgnored() {
+    const t = String(newIgnoredText || '').trim()
+    if (!t) return
+    setDraftIgnored(prev => [...prev, t])
+    setNewIgnoredText('')
+  }
+  function addIgnoredToken(symbol) {
+    setIgnoredTokens(prev => {
+      const s = new Set(prev)
+      s.add(String(symbol))
+      return Array.from(s)
+    })
+  }
+  async function uploadIgnoredTokens(list) {
+    try {
+      const headers = token ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type': 'application/json' }
+      const dedup = Array.from(new Set((Array.isArray(list) ? list : []).map(x => String(x).trim()).filter(Boolean)))
+      const res = await fetch('/api/ignored-tokens', { method: 'POST', headers, body: JSON.stringify({ tokens: dedup }) })
+      if (!res.ok) return false
+      return true
+    } catch { return false }
+  }
+  async function loadIgnoredTokensFromServer() {
+    try {
+      const headers = token ? { Authorization: 'Bearer ' + token } : {}
+      const res = await fetch('/api/ignored-tokens', { method: 'GET', headers })
+      if (!res.ok) return false
+      const data = await res.json()
+      const serverList = Array.from(new Set((Array.isArray(data && data.tokens) ? data.tokens : []).map(x => String(x)).filter(Boolean)))
+      setIgnoredTokens(serverList)
+      return true
+    } catch { return false }
+  }
+  function requestIgnoreToken(symbol) {
+    setConfirmIgnoreSymbol(String(symbol))
+    setShowConfirmIgnoreDlg(true)
+  }
+  function confirmIgnoreNow() {
+    if (confirmIgnoreSymbol) addIgnoredToken(confirmIgnoreSymbol)
+    setShowConfirmIgnoreDlg(false)
+    setConfirmIgnoreSymbol(null)
+    try { showToast('Ignored ' + String(confirmIgnoreSymbol || '')) } catch { void 0 }
+  }
+  function cancelIgnoreNow() {
+    setShowConfirmIgnoreDlg(false)
+    setConfirmIgnoreSymbol(null)
+  }
+  function showToast(msg) {
+    clearTimeout(toastTimerRef.current)
+    setToastText(String(msg || ''))
+    toastTimerRef.current = setTimeout(() => { setToastText('') }, 2400)
+  }
+  async function syncIgnoredNow() {
+    try {
+      await uploadIgnoredTokens(ignoredTokens)
+      await loadIgnoredTokensFromServer()
+      showToast('Synced ignored list')
+    } catch {
+      showToast('Sync failed')
+    }
+  }
+  useEffect(() => {
+    if (token) {
+      try {
+        setTimeout(async () => {
+          try {
+            const headers = { Authorization: 'Bearer ' + token }
+            const res = await fetch('/api/ignored-tokens', { method: 'GET', headers })
+            if (!res.ok) return
+            const data = await res.json()
+            const serverList = Array.from(new Set((Array.isArray(data && data.tokens) ? data.tokens : []).map(x => String(x)).filter(Boolean)))
+            setIgnoredTokens(serverList)
+          } catch { void 0 }
+        }, 0)
+      } catch { void 0 }
+    }
+  }, [token])
   
 
   
@@ -299,8 +429,9 @@ export default function App() {
             ))}
           </div>
           <div className="toolbar-spacer" />
-          <button className={'seg-option'} onClick={openRuleManager}>Manage Rules</button>
-          <button className={'seg-option'} onClick={openMissionManager}>Manage Missions</button>
+          <button className={'seg-option'} onClick={openRuleManager} title="Manage Rules"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h16M4 12h16M4 18h16" stroke="#e6e6e6" strokeWidth="2" fill="none" strokeLinecap="round"/></svg></button>
+          <button className={'seg-option'} onClick={openMissionManager} title="Manage Missions"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6 4v16" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/><path d="M6 4h11l-4 3 4 3H6" fill="#e6e6e6"/></svg></button>
+          <button className={'seg-option'} onClick={openIgnoredManager} title="Manage Ignored"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="#e6e6e6" strokeWidth="2" fill="none"/><path d="M5 5l14 14" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/></svg></button>
         </div>
       </header>
       {showRuleDlg && (
@@ -354,8 +485,49 @@ export default function App() {
           </div>
         </div>
       )}
+      {showIgnoredDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:380,maxWidth:700,width:'60%'}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Manage Ignored Tokens</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'50vh',overflow:'auto'}}>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input className="rule-input" placeholder="New symbol" value={newIgnoredText} onChange={e=>setNewIgnoredText(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter') addDraftIgnored() }} />
+                <button className="seg-option" onClick={addDraftIgnored}>Add</button>
+              </div>
+              {draftIgnored.map((r,i) => (
+                <div key={i} style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <input className="rule-input" value={String(r || '')} onChange={e=>updateDraftIgnored(i, e.target.value)} placeholder="Symbol (e.g., BTC_USDT)" />
+                  <button className="seg-option" onClick={()=>deleteDraftIgnored(i)}>Delete</button>
+                </div>
+              ))}
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option" onClick={closeIgnoredManager}>Cancel</button>
+              <button className="seg-option" onClick={syncIgnoredNow}>Sync</button>
+              <button className="seg-option active" onClick={saveIgnoredManager}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showConfirmIgnoreDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:320}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Ignore Token</div>
+            <div className="small">Add <span className="text nowrap">{String(confirmIgnoreSymbol || '')}</span> to ignored list?</div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option" onClick={cancelIgnoreNow}>Cancel</button>
+              <button className="seg-option active" onClick={confirmIgnoreNow}>Ignore</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {toastText && (
+        <div style={{position:'fixed',right:16,bottom:16,zIndex:9999}}>
+          <div className="toast">{toastText}</div>
+        </div>
+      )}
       <div className="sections-grid">
-        {windows.map(it => <MetricsSection key={it.id} windowSec={it.sec} label={it.label} token={token} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} />)}
+        {windows.map(it => <MetricsSection key={it.id} windowSec={it.sec} label={it.label} token={token} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} ignoredSet={new Set(ignoredTokens)} onRequestIgnore={requestIgnoreToken} />)}
       </div>
     </div>
   )

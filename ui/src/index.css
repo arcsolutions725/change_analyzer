@@ -97,6 +97,7 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 .timers { margin-left:12px; font-size:12px; color:#8a8f9c }
 .seg-option { padding:6px 12px; border-radius:999px; border:1px solid #2a3140; background:#1a1f2b; color:#e6e6e6; cursor:pointer; font-size:14px }
 .seg-option.active { background:#17c964; color:#0f1115 }
+.seg-option svg { display:block }
 /* Rules UI */
 .rule-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
 .rule-chip { display:inline-flex; align-items:center; gap:6px; color:#ff4d4f; padding:0; border-radius:0; background: transparent; border: 0; box-shadow: none }
@@ -113,7 +114,7 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 }
 .rule-chip.warn { animation: pulseWarn 1.6s ease-in-out infinite }
 .mission-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
-.toolbar .rule-bar + .mission-bar { margin-left: 16px }
+.toolbar .rule-bar + .mission-bar { margin-left: 30px }
 .mission-chip { display:inline-flex; align-items:center; gap:6px; color:#78e7b0; padding:0; border-radius:0; background: transparent; border: 0; box-shadow: none }
 .mission-chip .icon { margin-right: 4px }
 .mission-chip.achieved { color:#17c964 }
@@ -124,3 +125,4 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 .mission-btn.achieved.active { background:#17c964; color:#0f1115; border-color:#17c964 }
 .mission-btn.current.active { background:#e6e6e6; color:#0f1115; border-color:#e6e6e6 }
 .mission-btn.not_achieved.active { background:#ff4d4f; color:#0f1115; border-color:#ff4d4f }
+.toast { background:#171b24; color:#e6e6e6; border:1px solid #2a3140; border-radius:8px; padding:8px 12px; box-shadow:none; font-size:14px }

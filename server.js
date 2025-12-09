@@ -33,6 +33,21 @@ const MYSQL_USER = process.env.MYSQL_USER || ''
 const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || ''
 const MYSQL_DB = process.env.MYSQL_DB || ''
 let dbPool = null
+const ignoredFile = path.join(runtimeDir, 'ignored_tokens.json')
+let ignoredTokensStore = []
+try {
+  const t = fs.readFileSync(ignoredFile, 'utf8')
+  const arr = JSON.parse(t)
+  ignoredTokensStore = Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : []
+} catch {}
+function saveIgnoredTokens(list) {
+  try {
+    const uniq = Array.from(new Set((Array.isArray(list) ? list : []).filter(x => typeof x === 'string')))
+    ignoredTokensStore = uniq
+    fs.writeFileSync(ignoredFile, JSON.stringify(uniq))
+    return true
+  } catch { return false }
+}
 async function initDb() {
   if (!MYSQL_HOST || !MYSQL_USER || !MYSQL_DB) return
   dbPool = mysql.createPool({ host: MYSQL_HOST, port: MYSQL_PORT, user: MYSQL_USER, password: MYSQL_PASSWORD, database: MYSQL_DB, waitForConnections: true, connectionLimit: 5 })
@@ -298,6 +313,41 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
       res.end('[]')
     }
+    return
+  }
+  if (reqPath === '/api/ignored-tokens') {
+    if (!ensureAuth(req, res)) return
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify({ tokens: ignoredTokensStore }))
+      return
+    }
+    if (req.method === 'POST') {
+      const chunks = []
+      req.on('data', c => chunks.push(c))
+      req.on('end', () => {
+        try {
+          const body = Buffer.concat(chunks).toString('utf8')
+          const parsed = JSON.parse(body || '{}')
+          const list = parsed && parsed.tokens
+          if (!Array.isArray(list)) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'tokens array required' })); return }
+          const ok = saveIgnoredTokens(list)
+          if (ok) {
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+            res.end(JSON.stringify({ ok: true }))
+          } else {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'save failed' }))
+          }
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Bad Request' }))
+        }
+      })
+      return
+    }
+    res.writeHead(405, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Method Not Allowed' }))
     return
   }
   if (reqPath.startsWith('/api/metrics')) {
