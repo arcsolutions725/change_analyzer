@@ -488,7 +488,7 @@ const server = http.createServer(async (req, res) => {
       const u = new URL('http://x' + req.url)
       let windowSec = Number(u.searchParams.get('window') || '600')
       if (!ALLOWED_METRIC_WINDOWS.has(windowSec)) windowSec = 600
-      const limit = Number(u.searchParams.get('limit') || '50')
+      const limit = Math.min(20, Math.max(1, Number(u.searchParams.get('limit') || '20')))
       if (!dbPool || windowSec <= 0) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify([])); return }
       const cacheKey = `${windowSec}:${limit}`
       const cached = metricsCache.get(cacheKey)
@@ -514,20 +514,17 @@ const server = http.createServer(async (req, res) => {
         FROM windowed
         GROUP BY symbol
       `, [cutoff])
-      const [latest] = await dbPool.query('SELECT p.symbol, p.price FROM prices p JOIN (SELECT symbol, MAX(ts) AS ts FROM prices GROUP BY symbol) x ON x.symbol = p.symbol AND x.ts = p.ts')
-      const curMap = new Map(latest.map(r => [r.symbol, Number(r.price)]))
       const items = []
       for (const r of mm) {
         const sym = r.symbol
         if (!isUsdtSymbol(sym) || !allowedFutures.has(sym) || ignoredTokensSet.has(sym)) continue
         const minp = Number(r.minp)
         const maxp = Number(r.maxp)
-        const cur = curMap.has(sym) ? curMap.get(sym) : null
         if (!minp || !maxp || minp <= 0) continue
         const minTs = r.min_ts != null ? Number(r.min_ts) : null
         const maxTs = r.max_ts != null ? Number(r.max_ts) : null
         const changePct = (maxp / minp) * 100
-        items.push({ symbol: sym, current: cur, min: minp, max: maxp, changePct, minTs, maxTs })
+        items.push({ symbol: sym, changePct, minTs, maxTs })
       }
       items.sort((a,b) => Number(b.changePct || 0) - Number(a.changePct || 0))
       const out = items.slice(0, limit)

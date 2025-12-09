@@ -73,7 +73,7 @@ function useMetrics(windowSec, token) {
     let alive = true
     async function load() {
       try {
-        const res = await fetch(`/api/metrics?window=${windowSec}&limit=100`, { headers })
+        const res = await fetch(`/api/metrics?window=${windowSec}&limit=20`, { headers })
         if (res.status === 401) {
           try { localStorage.removeItem('authToken') } catch { void 0 }
           setRows([])
@@ -81,8 +81,7 @@ function useMetrics(windowSec, token) {
           return
         }
         const arr = await res.json()
-        const out = Array.isArray(arr) ? arr.map(r => ({ symbol: r.symbol, current: Number(r.current || r.price || NaN), min: Number(r.min || NaN), max: Number(r.max || NaN), changePct: Number(r.changePct || 0), minTs: Number(r.minTs || NaN), maxTs: Number(r.maxTs || NaN) })) : []
-        out.sort((a,b) => Number(b.changePct || 0) - Number(a.changePct || 0))
+        const out = Array.isArray(arr) ? arr.map(r => ({ symbol: r.symbol, changePct: Number(r.changePct || 0), minTs: Number(r.minTs || NaN), maxTs: Number(r.maxTs || NaN) })) : []
         if (alive) {
           setRows(out)
           try {
