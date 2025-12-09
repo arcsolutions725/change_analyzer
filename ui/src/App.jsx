@@ -129,6 +129,8 @@ function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbo
   const [remainSec, setRemainSec] = useState(0)
   const pressTimerRef = useRef(null)
   const didLongPressRef = useRef(false)
+  const [sortMode, setSortMode] = useState('change')
+  const [sortDir, setSortDir] = useState('desc')
   function handleRowClick(e, symbol) { if (didLongPressRef.current) { didLongPressRef.current = false; return } onSelectSymbol(symbol); onRowClick(e, symbol) }
   function handlePairClick(e, symbol) { onSelectSymbol(symbol); onPairClick(e, symbol) }
   function startPress(symbol) {
@@ -137,6 +139,19 @@ function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbo
     pressTimerRef.current = setTimeout(() => { didLongPressRef.current = true; onRequestIgnore(symbol) }, 600)
   }
   function endPress() { clearTimeout(pressTimerRef.current); pressTimerRef.current = null }
+  function toggleSort(mode) {
+    if (sortMode === mode) { setSortDir(d => d === 'desc' ? 'asc' : 'desc') } else { setSortMode(mode); setSortDir('desc') }
+  }
+  function metricVal(r) { return sortMode === 'count' ? Number((rankCounts && rankCounts[r.symbol]) || 0) : Number(r.changePct || 0) }
+  const displayedRows = (() => {
+    const filtered = rows.filter(rr => !(ignoredSet && ignoredSet.has(rr.symbol)))
+    const sorted = [...filtered].sort((a,b) => {
+      const va = metricVal(a)
+      const vb = metricVal(b)
+      return sortDir === 'desc' ? (vb - va) : (va - vb)
+    })
+    return sorted.slice(0,20)
+  })()
   useEffect(() => {
     function update() {
       if (nextRefreshTs != null) {
@@ -154,13 +169,13 @@ function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbo
       <table>
         <thead>
           <tr>
-            <th className="nowrap col-no">Count</th>
+            <th className="nowrap col-no"><button className={'hdr-btn ' + (sortMode==='count' ? 'active' : '')} onClick={()=>toggleSort('count')}>{sortMode==='count' && sortDir==='desc' ? '▼' : '▲'}</button></th>
             <th className="nowrap col-pair">Pair</th>
-            <th className="nowrap cell">Change %</th>
+            <th className="nowrap cell">Change % <button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></th>
           </tr>
         </thead>
         <tbody>
-          {rows.filter(rr => !(ignoredSet && ignoredSet.has(rr.symbol))).slice(0,20).map((r) => (
+          {displayedRows.map((r) => (
             <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new' : '')} onMouseDown={()=>startPress(r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
               <td className="num col-no">{Number((rankCounts && rankCounts[r.symbol]) || 0)}</td>
               <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>{r.symbol.replace('_','/')}</td>
