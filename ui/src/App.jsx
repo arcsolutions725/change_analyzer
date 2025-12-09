@@ -321,9 +321,8 @@ export default function App() {
       const prev = editPrevRef.current.get(i)
       const next = String(draftIgnored[i] || '').trim()
       if (!prev || !next || prev === next) return
-      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
-      const res = await fetch('/api/ignored-tokens/rename', { method: 'POST', headers, body: JSON.stringify({ old: prev, next }) })
-      if (res.ok) {
+      const ok = await serverRenameIgnore(prev, next)
+      if (ok) {
         setIgnoredTokens(list => Array.from(new Set(list.map(x => (String(x) === prev ? next : x)))))
         showToast('Updated')
       } else {
@@ -335,9 +334,8 @@ export default function App() {
     const sym = String(draftIgnored[i] || '')
     setDraftIgnored(prev => prev.filter((_, idx) => idx !== i))
     try {
-      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
-      const res = await fetch('/api/ignored-tokens/remove', { method: 'POST', headers, body: JSON.stringify({ symbol: sym }) })
-      if (res.ok) {
+      const ok = await serverRemoveIgnore(sym)
+      if (ok) {
         setIgnoredTokens(prev => prev.filter(x => String(x) !== sym))
         showToast('Removed')
       } else {
@@ -363,9 +361,8 @@ export default function App() {
     setDraftIgnored(prev => Array.from(new Set([...prev, t])))
     setNewIgnoredText('')
     try {
-      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
-      const res = await fetch('/api/ignored-tokens/add', { method: 'POST', headers, body: JSON.stringify({ symbol: t }) })
-      if (res.ok) {
+      const ok = await serverAddIgnore(t)
+      if (ok) {
         setIgnoredTokens(prev => Array.from(new Set([...prev, t])))
         showToast('Added')
       } else {
@@ -383,6 +380,45 @@ export default function App() {
       return true
     } catch { return false }
   }
+  async function serverAddIgnore(sym) {
+    try {
+      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
+      const res = await fetch('/api/ignored-tokens/add', { method: 'POST', headers, body: JSON.stringify({ symbol: String(sym) }) })
+      if (res.ok) return true
+      const status = res.status
+      if (status === 404 || status === 405) {
+        const next = Array.from(new Set([...(ignoredTokens || []), String(sym)]))
+        return await uploadIgnoredTokens(next)
+      }
+      return false
+    } catch { return false }
+  }
+  async function serverRemoveIgnore(sym) {
+    try {
+      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
+      const res = await fetch('/api/ignored-tokens/remove', { method: 'POST', headers, body: JSON.stringify({ symbol: String(sym) }) })
+      if (res.ok) return true
+      const status = res.status
+      if (status === 404 || status === 405) {
+        const next = Array.from((ignoredTokens || []).filter(x => String(x) !== String(sym)))
+        return await uploadIgnoredTokens(next)
+      }
+      return false
+    } catch { return false }
+  }
+  async function serverRenameIgnore(oldSym, nextSym) {
+    try {
+      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
+      const res = await fetch('/api/ignored-tokens/rename', { method: 'POST', headers, body: JSON.stringify({ old: String(oldSym), next: String(nextSym) }) })
+      if (res.ok) return true
+      const status = res.status
+      if (status === 404 || status === 405) {
+        const next = Array.from(new Set((ignoredTokens || []).map(x => (String(x) === String(oldSym) ? String(nextSym) : String(x)))))
+        return await uploadIgnoredTokens(next)
+      }
+      return false
+    } catch { return false }
+  }
   async function loadIgnoredTokensFromServer() {
     try {
       const headers = token ? { Authorization: 'Bearer ' + token } : {}
@@ -398,17 +434,25 @@ export default function App() {
     setConfirmIgnoreSymbol(String(symbol))
     setShowConfirmIgnoreDlg(true)
   }
-  async function confirmIgnoreNow() {
-    if (confirmIgnoreSymbol) {
-      try {
-        const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
-        const res = await fetch('/api/ignored-tokens/add', { method: 'POST', headers, body: JSON.stringify({ symbol: String(confirmIgnoreSymbol) }) })
-        if (res.ok) setIgnoredTokens(prev => Array.from(new Set([...prev, String(confirmIgnoreSymbol)])))
-      } catch { void 0 }
-    }
+  function confirmIgnoreNow() {
+    const sym = confirmIgnoreSymbol
     setShowConfirmIgnoreDlg(false)
     setConfirmIgnoreSymbol(null)
-    try { showToast('Ignored ' + String(confirmIgnoreSymbol || '')) } catch { void 0 }
+    if (sym) {
+      try { showToast('Ignored ' + String(sym || '')) } catch { void 0 }
+      setTimeout(async () => {
+        try {
+          const ok = await serverAddIgnore(String(sym))
+          if (!ok) {
+            showToast('Unlock required')
+          }
+          if (ok) {
+            setIgnoredTokens(prev => Array.from(new Set([...prev, String(sym)])))
+            await loadIgnoredTokensFromServer()
+          }
+        } catch { void 0 }
+      }, 0)
+    }
   }
   function cancelIgnoreNow() {
     setShowConfirmIgnoreDlg(false)
