@@ -117,7 +117,7 @@ function useMetrics(windowSec, token) {
 }
 
 function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbol }) {
-  const { rows, nextRefreshTs } = useMetrics(windowSec, token)
+  const { rows, highlightSet, nextRefreshTs } = useMetrics(windowSec, token)
   const [remainSec, setRemainSec] = useState(0)
   function handleRowClick(e, symbol) { onSelectSymbol(symbol); onRowClick(e, symbol) }
   function handlePairClick(e, symbol) { onSelectSymbol(symbol); onPairClick(e, symbol) }
@@ -145,7 +145,7 @@ function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbo
         </thead>
         <tbody>
           {rows.slice(0,20).map((r,i) => (
-            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected' : '')} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
+            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new' : '')} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
               <td className="num col-no">{i+1}</td>
               <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>{r.symbol.replace('_','/')}</td>
               {(() => {
