@@ -486,7 +486,8 @@ const server = http.createServer(async (req, res) => {
     if (!ensureAuth(req, res)) return
     try {
       const u = new URL('http://x' + req.url)
-      const windowSec = Number(u.searchParams.get('window') || '600')
+      let windowSec = Number(u.searchParams.get('window') || '600')
+      if (!ALLOWED_METRIC_WINDOWS.has(windowSec)) windowSec = 600
       const limit = Number(u.searchParams.get('limit') || '50')
       if (!dbPool || windowSec <= 0) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify([])); return }
       const cacheKey = `${windowSec}:${limit}`
@@ -536,54 +537,6 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
       res.end(JSON.stringify([]))
-    }
-    return
-  }
-  if (reqPath === '/api/admin/counts') {
-    if (!ensureAuth(req, res)) return
-    try {
-      if (!dbPool) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ prices: 0, agg_prices: 0 })); return }
-      const [[p]] = await dbPool.query('SELECT COUNT(*) AS c FROM prices')
-      const [[a]] = await dbPool.query('SELECT COUNT(*) AS c FROM agg_prices')
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
-      res.end(JSON.stringify({ prices: Number(p.c || 0), agg_prices: Number(a.c || 0) }))
-    } catch (e) {
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
-      res.end(JSON.stringify({ prices: 0, agg_prices: 0 }))
-    }
-    return
-  }
-  if (reqPath === '/api/admin/init-db') {
-    if (!ensureAuth(req, res)) return
-    if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method Not Allowed' })); return }
-    try {
-      if (!dbPool) { res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ error: 'DB not ready' })); return }
-      await dbPool.query('TRUNCATE TABLE prices')
-      await dbPool.query('TRUNCATE TABLE agg_prices')
-      aggStates = new Map(); for (const itv of aggIntervals) aggStates.set(itv, new Map())
-      writeBuf = []
-      aggWriteBuf = []
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
-      res.end(JSON.stringify({ ok: true }))
-    } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
-      res.end(JSON.stringify({ error: 'Init failed' }))
-    }
-    return
-  }
-  if (reqPath === '/api/admin/trim-1d') {
-    if (!ensureAuth(req, res)) return
-    if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method Not Allowed' })); return }
-    try {
-      if (!dbPool) { res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ error: 'DB not ready' })); return }
-      const cutoff = Date.now() - (1 * 24 * 60 * 60 * 1000)
-      const [res1] = await dbPool.query('DELETE FROM prices WHERE ts < ?', [cutoff])
-      const [res2] = await dbPool.query('DELETE FROM agg_prices WHERE bucket_ts < ?', [cutoff])
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
-      res.end(JSON.stringify({ ok: true, deletedPrices: (res1 && res1.affectedRows) || 0, deletedAgg: (res2 && res2.affectedRows) || 0 }))
-    } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
-      res.end(JSON.stringify({ error: 'Trim failed' }))
     }
     return
   }
@@ -649,6 +602,7 @@ async function fetchJson(urlStr) {
 
 const metricsCache = new Map()
 const METRICS_CACHE_MS = 10000
+const ALLOWED_METRIC_WINDOWS = new Set([60, 120, 300, 600, 3600])
 
 let lastPayload = null
 async function pollAndBroadcast() {

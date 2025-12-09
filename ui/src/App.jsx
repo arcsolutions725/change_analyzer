@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import './index.css'
 
 const windows = [
-  { id: 'w40s', label: '40s', sec: 40 },
   { id: 'w1m', label: '1m', sec: 60 },
   { id: 'w2m', label: '2m', sec: 120 },
   { id: 'w5m', label: '5m', sec: 300 },
@@ -182,9 +181,9 @@ function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbo
       <table>
         <thead>
           <tr>
-            <th className="nowrap col-no"><div className="hdr"><span>Ct</span><button className={'hdr-btn ' + (sortMode==='count' ? 'active' : '')} onClick={()=>toggleSort('count')}>{sortMode==='count' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
+            <th className="nowrap col-no"><div className="hdr"><span>Count</span><button className={'hdr-btn ' + (sortMode==='count' ? 'active' : '')} onClick={()=>toggleSort('count')}>{sortMode==='count' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
             <th className="nowrap col-pair">Pair</th>
-            <th className="nowrap cell"><div className="hdr"><span>Cg %</span><button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
+            <th className="nowrap cell"><div className="hdr"><span>Change %</span><button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
           </tr>
         </thead>
         <tbody>
