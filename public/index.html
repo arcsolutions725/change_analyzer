@@ -623,8 +623,6 @@
 
     function setActive(symbol) {
       selectedSymbol = symbol
-      document.querySelectorAll('tr.row.selected').forEach(el => el.classList.remove('selected'))
-      document.querySelectorAll(`tr.row[data-symbol="${symbol}"]`).forEach(el => el.classList.add('selected'))
     }
 
     function onRowClick(e) {

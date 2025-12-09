@@ -81,15 +81,29 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 .rightScroller { overflow-x: auto }
 .right table { table-layout: fixed; min-width: 2000px }
 .right { border-left: 1px solid #212633; padding-left: 8px }
-.row { transition: background 0.2s ease }
-.row:hover { background: rgba(255,255,255,0.04) }
-.row.selected { background: rgba(47, 128, 237, 0.18) }
+.row { transition: none }
 .num { text-align: right; font-feature-settings: "tnum" 1, "lnum" 1 }
 .muted { color:#8a8f9c }
 .pos { color:#17c964 }
 .neg { color:#ff4d4f }
-.toolbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:8px }
+.toolbar { display:flex; gap:12px; align-items:center; flex-wrap:nowrap; margin-bottom:8px }
+.toolbar-spacer { flex: 1 1 auto }
 .brand { font-weight:700; font-size:18px; margin-right:12px }
-.timers { margin-left:auto; font-size:12px; color:#8a8f9c }
+.timers { margin-left:12px; font-size:12px; color:#8a8f9c }
 .seg-option { padding:6px 12px; border-radius:999px; border:1px solid #2a3140; background:#1a1f2b; color:#e6e6e6; cursor:pointer; font-size:14px }
 .seg-option.active { background:#17c964; color:#0f1115 }
+/* Rules UI */
+.rule-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+.rule-chip { display:inline-flex; align-items:center; gap:6px; color:#ff4d4f; padding:0; border-radius:0; background: transparent; border: 0; box-shadow: none }
+.rule-sep { width: 1px; height: 20px; background: #2a3140; margin: 0 8px }
+.rule-btn { display:none }
+.rule-btn:hover { display:none }
+.rule-input { background:#141821; color:#e6e6e6; border:1px solid #2a3140; border-radius:8px; padding:6px 8px; outline:none; min-width:180px }
+.chip { display:inline-flex; align-items:center; gap:6px }
+.rule-chip.warn { background: transparent; color:#ff4d4f }
+@keyframes pulseWarn {
+  0% { text-shadow: 0 0 0 rgba(255, 77, 79, 0.0) }
+  50% { text-shadow: 0 0 6px rgba(255, 77, 79, 0.8) }
+  100% { text-shadow: 0 0 0 rgba(255, 77, 79, 0.0) }
+}
+.rule-chip.warn { animation: pulseWarn 1.6s ease-in-out infinite }

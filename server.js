@@ -41,6 +41,7 @@ async function initDb() {
     await dbPool.query('CREATE TABLE IF NOT EXISTS prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, ts BIGINT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_ts (symbol, ts))')
     await dbPool.query('CREATE TABLE IF NOT EXISTS agg_prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, bucket_ts BIGINT NOT NULL, interval_sec INT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_bucket_interval (symbol, bucket_ts, interval_sec))')
     try { await dbPool.query('ALTER TABLE prices ADD UNIQUE KEY uniq_symbol_ts (symbol, ts)') } catch {}
+    try { await dbPool.query('CREATE INDEX idx_symbol_price_ts ON prices (symbol, price, ts)') } catch {}
     console.log('DB initialized')
   } catch (e) {
     try { console.error('DB init error', e && e.message ? e.message : String(e)) } catch {}
@@ -306,8 +307,30 @@ const server = http.createServer(async (req, res) => {
       const windowSec = Number(u.searchParams.get('window') || '600')
       const limit = Number(u.searchParams.get('limit') || '50')
       if (!dbPool || windowSec <= 0) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify([])); return }
+      const cacheKey = `${windowSec}:${limit}`
+      const cached = metricsCache.get(cacheKey)
+      if (cached && (Date.now() - cached.ts) < METRICS_CACHE_MS) {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+        res.end(JSON.stringify(cached.data))
+        return
+      }
       const cutoff = Date.now() - (windowSec * 1000)
-      const [mm] = await dbPool.query('SELECT symbol, MIN(price) AS minp, MAX(price) AS maxp FROM prices WHERE ts >= ? GROUP BY symbol', [cutoff])
+      const [mm] = await dbPool.query(`
+        WITH windowed AS (
+          SELECT symbol, price, ts,
+                 ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY price ASC, ts ASC) AS rn_min,
+                 ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY price DESC, ts ASC) AS rn_max
+          FROM prices
+          WHERE ts >= ?
+        )
+        SELECT symbol,
+               MIN(price) AS minp,
+               MAX(price) AS maxp,
+               MAX(CASE WHEN rn_min = 1 THEN ts END) AS min_ts,
+               MAX(CASE WHEN rn_max = 1 THEN ts END) AS max_ts
+        FROM windowed
+        GROUP BY symbol
+      `, [cutoff])
       const [latest] = await dbPool.query('SELECT p.symbol, p.price FROM prices p JOIN (SELECT symbol, MAX(ts) AS ts FROM prices GROUP BY symbol) x ON x.symbol = p.symbol AND x.ts = p.ts')
       const curMap = new Map(latest.map(r => [r.symbol, Number(r.price)]))
       const items = []
@@ -318,26 +341,33 @@ const server = http.createServer(async (req, res) => {
         const maxp = Number(r.maxp)
         const cur = curMap.has(sym) ? curMap.get(sym) : null
         if (!minp || !maxp || minp <= 0) continue
-        let minTs = null
-        let maxTs = null
-        try {
-          const [minRowsTs] = await dbPool.query('SELECT ts FROM prices WHERE ts >= ? AND symbol = ? ORDER BY price ASC, ts ASC LIMIT 1', [cutoff, sym])
-          if (Array.isArray(minRowsTs) && minRowsTs.length > 0) minTs = Number(minRowsTs[0].ts)
-        } catch {}
-        try {
-          const [maxRowsTs] = await dbPool.query('SELECT ts FROM prices WHERE ts >= ? AND symbol = ? ORDER BY price DESC, ts ASC LIMIT 1', [cutoff, sym])
-          if (Array.isArray(maxRowsTs) && maxRowsTs.length > 0) maxTs = Number(maxRowsTs[0].ts)
-        } catch {}
+        const minTs = r.min_ts != null ? Number(r.min_ts) : null
+        const maxTs = r.max_ts != null ? Number(r.max_ts) : null
         const changePct = (maxp / minp) * 100
         items.push({ symbol: sym, current: cur, min: minp, max: maxp, changePct, minTs, maxTs })
       }
       items.sort((a,b) => Number(b.changePct || 0) - Number(a.changePct || 0))
       const out = items.slice(0, limit)
+      metricsCache.set(cacheKey, { ts: Date.now(), data: out })
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
       res.end(JSON.stringify(out))
     } catch (e) {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
       res.end(JSON.stringify([]))
+    }
+    return
+  }
+  if (reqPath === '/api/admin/counts') {
+    if (!ensureAuth(req, res)) return
+    try {
+      if (!dbPool) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ prices: 0, agg_prices: 0 })); return }
+      const [[p]] = await dbPool.query('SELECT COUNT(*) AS c FROM prices')
+      const [[a]] = await dbPool.query('SELECT COUNT(*) AS c FROM agg_prices')
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify({ prices: Number(p.c || 0), agg_prices: Number(a.c || 0) }))
+    } catch (e) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify({ prices: 0, agg_prices: 0 }))
     }
     return
   }
@@ -359,12 +389,12 @@ const server = http.createServer(async (req, res) => {
     }
     return
   }
-  if (reqPath === '/api/admin/trim-3d') {
+  if (reqPath === '/api/admin/trim-1d') {
     if (!ensureAuth(req, res)) return
     if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method Not Allowed' })); return }
     try {
       if (!dbPool) { res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ error: 'DB not ready' })); return }
-      const cutoff = Date.now() - (3 * 24 * 60 * 60 * 1000)
+      const cutoff = Date.now() - (1 * 24 * 60 * 60 * 1000)
       const [res1] = await dbPool.query('DELETE FROM prices WHERE ts < ?', [cutoff])
       const [res2] = await dbPool.query('DELETE FROM agg_prices WHERE bucket_ts < ?', [cutoff])
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
@@ -434,6 +464,9 @@ async function fetchJson(urlStr) {
     }).on('error', reject)
   })
 }
+
+const metricsCache = new Map()
+const METRICS_CACHE_MS = 10000
 
 let lastPayload = null
 async function pollAndBroadcast() {
@@ -559,3 +592,33 @@ function refreshAllowedFutures() {
 }
 refreshAllowedFutures()
 setInterval(refreshAllowedFutures, 10 * 60 * 1000)
+
+async function performTrim1d() {
+  try {
+    if (!dbPool) return
+    const cutoff = Date.now() - (1 * 24 * 60 * 60 * 1000)
+    await dbPool.query('DELETE FROM prices WHERE ts < ?', [cutoff])
+    await dbPool.query('DELETE FROM agg_prices WHERE bucket_ts < ?', [cutoff])
+  } catch {}
+}
+
+function scheduleDailyTrim() {
+  const targetHour = 3
+  const targetMinute = 10
+  function nextDelayMs() {
+    const now = new Date()
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetHour, targetMinute, 0, 0)
+    if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1)
+    return next.getTime() - now.getTime()
+  }
+  function planNext() {
+    const wait = nextDelayMs()
+    setTimeout(async () => {
+      try { await performTrim1d() } catch {}
+      planNext()
+    }, wait)
+  }
+  planNext()
+}
+
+scheduleDailyTrim()
