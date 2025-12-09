@@ -75,7 +75,7 @@ body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto
 .layout { display:grid; grid-template-columns: 280px 1fr; gap:8px }
 table { width:100%; border-collapse: collapse }
 th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; font-size:14px }
-.col-no { width: 32px; display: block  }
+.col-no { width: 64px }
 .col-pair { width: 160px }
 .cell { width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .rightScroller { overflow-x: auto }
@@ -98,7 +98,8 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 .seg-option { padding:6px 12px; border-radius:999px; border:1px solid #2a3140; background:#1a1f2b; color:#e6e6e6; cursor:pointer; font-size:14px }
 .seg-option.active { background:#17c964; color:#0f1115 }
 .seg-option svg { display:block }
-.hdr-btn { margin-left:6px; background:transparent; border:0; color:#e6e6e6; cursor:pointer; padding:0 }
+.hdr { display:flex; align-items:center; justify-content:space-between; gap:6px; min-width:0 }
+.hdr-btn { margin-left:6px; background:transparent; border:0; color:#e6e6e6; cursor:pointer; padding:0; line-height:1; font-size:12px }
 .hdr-btn.active { color:#17c964 }
 /* Rules UI */
 .rule-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap }

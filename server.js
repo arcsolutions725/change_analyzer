@@ -35,16 +35,94 @@ const MYSQL_DB = process.env.MYSQL_DB || ''
 let dbPool = null
 const ignoredFile = path.join(runtimeDir, 'ignored_tokens.json')
 let ignoredTokensStore = []
+let ignoredTokensSet = new Set()
 try {
   const t = fs.readFileSync(ignoredFile, 'utf8')
   const arr = JSON.parse(t)
   ignoredTokensStore = Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : []
 } catch {}
-function saveIgnoredTokens(list) {
+function updateIgnoredMemory(list) {
+  const uniq = Array.from(new Set((Array.isArray(list) ? list : []).filter(x => typeof x === 'string')))
+  ignoredTokensStore = uniq
+  ignoredTokensSet = new Set(uniq)
+}
+async function refreshIgnoredFromDb() {
   try {
-    const uniq = Array.from(new Set((Array.isArray(list) ? list : []).filter(x => typeof x === 'string')))
-    ignoredTokensStore = uniq
+    if (!dbPool) return false
+    const [rows] = await dbPool.query('SELECT symbol FROM ignored_tokens')
+    const arr = rows.map(r => String(r.symbol)).filter(Boolean)
+    updateIgnoredMemory(arr)
+    return true
+  } catch { return false }
+}
+async function saveIgnoredTokens(list) {
+  const uniq = Array.from(new Set((Array.isArray(list) ? list : []).filter(x => typeof x === 'string')))
+  try {
+    if (dbPool) {
+      await dbPool.query('DELETE FROM ignored_tokens')
+      if (uniq.length > 0) {
+        const values = uniq.map(s => [s])
+        const placeholders = values.map(() => '(?)').join(',')
+        await dbPool.query('INSERT INTO ignored_tokens (symbol) VALUES ' + placeholders, values.flat())
+      }
+      updateIgnoredMemory(uniq)
+      return true
+    }
+  } catch {}
+  try {
     fs.writeFileSync(ignoredFile, JSON.stringify(uniq))
+    updateIgnoredMemory(uniq)
+    return true
+  } catch { return false }
+}
+async function addIgnoredTokenDb(symbol) {
+  try {
+    const s = String(symbol || '').trim()
+    if (!s) return false
+    if (dbPool) {
+      await dbPool.query('INSERT IGNORE INTO ignored_tokens (symbol) VALUES (?)', [s])
+      await refreshIgnoredFromDb()
+      return true
+    }
+  } catch {}
+  try {
+    updateIgnoredMemory([...(ignoredTokensStore || []), String(symbol)])
+    fs.writeFileSync(ignoredFile, JSON.stringify(ignoredTokensStore))
+    return true
+  } catch { return false }
+}
+async function removeIgnoredTokenDb(symbol) {
+  try {
+    const s = String(symbol || '').trim()
+    if (!s) return false
+    if (dbPool) {
+      await dbPool.query('DELETE FROM ignored_tokens WHERE symbol = ?', [s])
+      await refreshIgnoredFromDb()
+      return true
+    }
+  } catch {}
+  try {
+    updateIgnoredMemory((ignoredTokensStore || []).filter(x => String(x) !== s))
+    fs.writeFileSync(ignoredFile, JSON.stringify(ignoredTokensStore))
+    return true
+  } catch { return false }
+}
+async function renameIgnoredTokenDb(oldSym, nextSym) {
+  try {
+    const a = String(oldSym || '').trim()
+    const b = String(nextSym || '').trim()
+    if (!a || !b) return false
+    if (dbPool) {
+      await dbPool.query('DELETE FROM ignored_tokens WHERE symbol = ?', [a])
+      await dbPool.query('INSERT IGNORE INTO ignored_tokens (symbol) VALUES (?)', [b])
+      await refreshIgnoredFromDb()
+      return true
+    }
+  } catch {}
+  try {
+    const next = (ignoredTokensStore || []).map(x => (String(x) === a ? b : x))
+    updateIgnoredMemory(next)
+    fs.writeFileSync(ignoredFile, JSON.stringify(ignoredTokensStore))
     return true
   } catch { return false }
 }
@@ -55,9 +133,11 @@ async function initDb() {
     await dbPool.query('SELECT 1')
     await dbPool.query('CREATE TABLE IF NOT EXISTS prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, ts BIGINT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_ts (symbol, ts))')
     await dbPool.query('CREATE TABLE IF NOT EXISTS agg_prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, bucket_ts BIGINT NOT NULL, interval_sec INT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_bucket_interval (symbol, bucket_ts, interval_sec))')
+    await dbPool.query('CREATE TABLE IF NOT EXISTS ignored_tokens (symbol VARCHAR(64) PRIMARY KEY)')
     try { await dbPool.query('ALTER TABLE prices ADD UNIQUE KEY uniq_symbol_ts (symbol, ts)') } catch {}
     try { await dbPool.query('CREATE INDEX idx_symbol_price_ts ON prices (symbol, price, ts)') } catch {}
     console.log('DB initialized')
+    try { await refreshIgnoredFromDb() } catch {}
   } catch (e) {
     try { console.error('DB init error', e && e.message ? e.message : String(e)) } catch {}
   }
@@ -325,13 +405,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST') {
       const chunks = []
       req.on('data', c => chunks.push(c))
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
           const body = Buffer.concat(chunks).toString('utf8')
           const parsed = JSON.parse(body || '{}')
           const list = parsed && parsed.tokens
           if (!Array.isArray(list)) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'tokens array required' })); return }
-          const ok = saveIgnoredTokens(list)
+          const ok = await saveIgnoredTokens(list)
           if (ok) {
             res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
             res.end(JSON.stringify({ ok: true }))
@@ -348,6 +428,58 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(405, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'Method Not Allowed' }))
+    return
+  }
+  if (reqPath === '/api/ignored-tokens/add') {
+    if (!ensureAuth(req, res)) return
+    if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method Not Allowed' })); return }
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', async () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf8')
+        const parsed = JSON.parse(body || '{}')
+        const symbol = parsed && parsed.symbol
+        const ok = await addIgnoredTokenDb(symbol)
+        if (ok) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ ok: true })) }
+        else { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'save failed' })) }
+      } catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Bad Request' })) }
+    })
+    return
+  }
+  if (reqPath === '/api/ignored-tokens/remove') {
+    if (!ensureAuth(req, res)) return
+    if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method Not Allowed' })); return }
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', async () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf8')
+        const parsed = JSON.parse(body || '{}')
+        const symbol = parsed && parsed.symbol
+        const ok = await removeIgnoredTokenDb(symbol)
+        if (ok) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ ok: true })) }
+        else { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'delete failed' })) }
+      } catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Bad Request' })) }
+    })
+    return
+  }
+  if (reqPath === '/api/ignored-tokens/rename') {
+    if (!ensureAuth(req, res)) return
+    if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method Not Allowed' })); return }
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', async () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf8')
+        const parsed = JSON.parse(body || '{}')
+        const oldSym = parsed && parsed.old
+        const nextSym = parsed && parsed.next
+        const ok = await renameIgnoredTokenDb(oldSym, nextSym)
+        if (ok) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ ok: true })) }
+        else { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'rename failed' })) }
+      } catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Bad Request' })) }
+    })
     return
   }
   if (reqPath.startsWith('/api/metrics')) {
@@ -386,7 +518,7 @@ const server = http.createServer(async (req, res) => {
       const items = []
       for (const r of mm) {
         const sym = r.symbol
-        if (!isUsdtSymbol(sym) || !allowedFutures.has(sym)) continue
+        if (!isUsdtSymbol(sym) || !allowedFutures.has(sym) || ignoredTokensSet.has(sym)) continue
         const minp = Number(r.minp)
         const maxp = Number(r.maxp)
         const cur = curMap.has(sym) ? curMap.get(sym) : null
@@ -534,9 +666,9 @@ async function pollAndBroadcast() {
           const symbol = it.symbol
           const price = it.lastPrice
           const fut = spotToFutures(symbol)
-          if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut)) {
+          if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut) && !ignoredTokensSet.has(fut)) {
             queueWrite(fut, nowTs, Number(price))
-            updateAggregators(symbol, Number(price), nowTs)
+            updateAggregators(fut, Number(price), nowTs)
           }
         } catch {}
       }
@@ -584,8 +716,8 @@ function connectMiniTickers() {
             const symbol = it.symbol || (it.s || '')
             const price = (it.price ?? it.p ?? it.lastPrice ?? null)
             const fut = spotToFutures(symbol)
-            if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut)) queueWrite(fut, nowTs, Number(price))
-            if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut)) updateAggregators(symbol, Number(price), nowTs)
+            if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut) && !ignoredTokensSet.has(fut)) queueWrite(fut, nowTs, Number(price))
+            if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut) && !ignoredTokensSet.has(fut)) updateAggregators(fut, Number(price), nowTs)
           } catch {}
         }
         // broadcast closed buckets

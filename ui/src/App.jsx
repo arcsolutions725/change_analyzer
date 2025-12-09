@@ -131,6 +131,19 @@ function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbo
   const didLongPressRef = useRef(false)
   const [sortMode, setSortMode] = useState('change')
   const [sortDir, setSortDir] = useState('desc')
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem('sort:'+String(windowSec))
+      if (t) {
+        const o = JSON.parse(t)
+        if (o && (o.mode==='count' || o.mode==='change')) setTimeout(() => { setSortMode(o.mode) }, 0)
+        if (o && (o.dir==='asc' || o.dir==='desc')) setTimeout(() => { setSortDir(o.dir) }, 0)
+      }
+    } catch { void 0 }
+  }, [windowSec])
+  useEffect(() => {
+    try { localStorage.setItem('sort:'+String(windowSec), JSON.stringify({ mode: sortMode, dir: sortDir })) } catch { void 0 }
+  }, [windowSec, sortMode, sortDir])
   function handleRowClick(e, symbol) { if (didLongPressRef.current) { didLongPressRef.current = false; return } onSelectSymbol(symbol); onRowClick(e, symbol) }
   function handlePairClick(e, symbol) { onSelectSymbol(symbol); onPairClick(e, symbol) }
   function startPress(symbol) {
@@ -169,9 +182,9 @@ function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbo
       <table>
         <thead>
           <tr>
-            <th className="nowrap col-no"><button className={'hdr-btn ' + (sortMode==='count' ? 'active' : '')} onClick={()=>toggleSort('count')}>{sortMode==='count' && sortDir==='desc' ? '▼' : '▲'}</button></th>
+            <th className="nowrap col-no"><div className="hdr"><span>Ct</span><button className={'hdr-btn ' + (sortMode==='count' ? 'active' : '')} onClick={()=>toggleSort('count')}>{sortMode==='count' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
             <th className="nowrap col-pair">Pair</th>
-            <th className="nowrap cell">Change % <button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></th>
+            <th className="nowrap cell"><div className="hdr"><span>Cg %</span><button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
           </tr>
         </thead>
         <tbody>
@@ -258,6 +271,7 @@ export default function App() {
     setDraftIgnored(Array.isArray(ignoredTokens) ? [...ignoredTokens] : [])
     setNewIgnoredText('')
     setShowIgnoredDlg(true)
+    setTimeout(async () => { try { await loadIgnoredTokensFromServer(); setDraftIgnored(Array.isArray(ignoredTokens) ? [...ignoredTokens] : []) } catch { void 0 } }, 0)
   }
   function closeRuleManager() {
     setShowRuleDlg(false)
@@ -298,11 +312,38 @@ export default function App() {
   function deleteDraftMission(i) {
     setDraftMissions(prev => prev.filter((_, idx) => idx !== i))
   }
+  const editPrevRef = useRef(new Map())
   function updateDraftIgnored(i, text) {
     setDraftIgnored(prev => prev.map((r, idx) => idx === i ? String(text) : r))
   }
-  function deleteDraftIgnored(i) {
+  async function commitDraftIgnored(i) {
+    try {
+      const prev = editPrevRef.current.get(i)
+      const next = String(draftIgnored[i] || '').trim()
+      if (!prev || !next || prev === next) return
+      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
+      const res = await fetch('/api/ignored-tokens/rename', { method: 'POST', headers, body: JSON.stringify({ old: prev, next }) })
+      if (res.ok) {
+        setIgnoredTokens(list => Array.from(new Set(list.map(x => (String(x) === prev ? next : x)))))
+        showToast('Updated')
+      } else {
+        showToast('Update failed')
+      }
+    } catch { showToast('Update failed') }
+  }
+  async function deleteDraftIgnored(i) {
+    const sym = String(draftIgnored[i] || '')
     setDraftIgnored(prev => prev.filter((_, idx) => idx !== i))
+    try {
+      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
+      const res = await fetch('/api/ignored-tokens/remove', { method: 'POST', headers, body: JSON.stringify({ symbol: sym }) })
+      if (res.ok) {
+        setIgnoredTokens(prev => prev.filter(x => String(x) !== sym))
+        showToast('Removed')
+      } else {
+        showToast('Remove failed')
+      }
+    } catch { showToast('Remove failed') }
   }
   function addDraftRule() {
     const t = String(newRuleText || '').trim()
@@ -316,19 +357,23 @@ export default function App() {
     setDraftMissions(prev => [...prev, { text: t, status: 'current' }])
     setNewMissionText('')
   }
-  function addDraftIgnored() {
+  async function addDraftIgnored() {
     const t = String(newIgnoredText || '').trim()
     if (!t) return
-    setDraftIgnored(prev => [...prev, t])
+    setDraftIgnored(prev => Array.from(new Set([...prev, t])))
     setNewIgnoredText('')
+    try {
+      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
+      const res = await fetch('/api/ignored-tokens/add', { method: 'POST', headers, body: JSON.stringify({ symbol: t }) })
+      if (res.ok) {
+        setIgnoredTokens(prev => Array.from(new Set([...prev, t])))
+        showToast('Added')
+      } else {
+        showToast('Add failed')
+      }
+    } catch { showToast('Add failed') }
   }
-  function addIgnoredToken(symbol) {
-    setIgnoredTokens(prev => {
-      const s = new Set(prev)
-      s.add(String(symbol))
-      return Array.from(s)
-    })
-  }
+  
   async function uploadIgnoredTokens(list) {
     try {
       const headers = token ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type': 'application/json' }
@@ -353,8 +398,14 @@ export default function App() {
     setConfirmIgnoreSymbol(String(symbol))
     setShowConfirmIgnoreDlg(true)
   }
-  function confirmIgnoreNow() {
-    if (confirmIgnoreSymbol) addIgnoredToken(confirmIgnoreSymbol)
+  async function confirmIgnoreNow() {
+    if (confirmIgnoreSymbol) {
+      try {
+        const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
+        const res = await fetch('/api/ignored-tokens/add', { method: 'POST', headers, body: JSON.stringify({ symbol: String(confirmIgnoreSymbol) }) })
+        if (res.ok) setIgnoredTokens(prev => Array.from(new Set([...prev, String(confirmIgnoreSymbol)])))
+      } catch { void 0 }
+    }
     setShowConfirmIgnoreDlg(false)
     setConfirmIgnoreSymbol(null)
     try { showToast('Ignored ' + String(confirmIgnoreSymbol || '')) } catch { void 0 }
@@ -511,7 +562,7 @@ export default function App() {
               </div>
               {draftIgnored.map((r,i) => (
                 <div key={i} style={{display:'flex',gap:8,alignItems:'center'}}>
-                  <input className="rule-input" value={String(r || '')} onChange={e=>updateDraftIgnored(i, e.target.value)} placeholder="Symbol (e.g., BTC_USDT)" />
+                  <input className="rule-input" value={String(r || '')} onFocus={()=>{ editPrevRef.current.set(i, String(r || '')) }} onBlur={()=>commitDraftIgnored(i)} onChange={e=>updateDraftIgnored(i, e.target.value)} placeholder="Symbol (e.g., BTC_USDT)" />
                   <button className="seg-option" onClick={()=>deleteDraftIgnored(i)}>Delete</button>
                 </div>
               ))}
