@@ -378,6 +378,59 @@ const server = http.createServer(async (req, res) => {
     }
     return
   }
+  if (reqPath.startsWith('/api/metrics/batch')) {
+    if (!ensureAuth(req, res)) return
+    try {
+      const u = new URL('http://x' + req.url)
+      const windowsParam = String(u.searchParams.get('windows') || '')
+      const requested = windowsParam
+        .split(',')
+        .map(s => Number(s.trim()))
+        .filter(s => ALLOWED_METRIC_WINDOWS.has(s))
+      const windowsList = requested.length > 0 ? requested : Array.from(ALLOWED_METRIC_WINDOWS)
+      const limit = Math.min(20, Math.max(1, Number(u.searchParams.get('limit') || '20')))
+      const out = {}
+      for (const windowSec of windowsList) {
+        const cutoff = Date.now() - (windowSec * 1000)
+        const [mm] = await dbPool.query(`
+          WITH windowed AS (
+            SELECT symbol, price, ts,
+                   ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY price ASC, ts ASC) AS rn_min,
+                   ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY price DESC, ts ASC) AS rn_max
+            FROM prices
+            WHERE ts >= ?
+          )
+          SELECT symbol,
+                 MIN(price) AS minp,
+                 MAX(price) AS maxp,
+                 MAX(CASE WHEN rn_min = 1 THEN ts END) AS min_ts,
+                 MAX(CASE WHEN rn_max = 1 THEN ts END) AS max_ts
+          FROM windowed
+          GROUP BY symbol
+        `, [cutoff])
+        const items = []
+        for (const r of mm) {
+          const sym = r.symbol
+          if (!isUsdtSymbol(sym) || !allowedFutures.has(sym) || ignoredTokensSet.has(sym)) continue
+          const minp = Number(r.minp)
+          const maxp = Number(r.maxp)
+          if (!minp || !maxp || minp <= 0) continue
+          const minTs = r.min_ts != null ? Number(r.min_ts) : null
+          const maxTs = r.max_ts != null ? Number(r.max_ts) : null
+          const changePct = (maxp / minp) * 100
+          items.push({ symbol: sym, changePct, minTs, maxTs })
+        }
+        items.sort((a,b) => Number(b.changePct || 0) - Number(a.changePct || 0))
+        out[String(windowSec)] = items.slice(0, limit).map(x => ({ symbol: x.symbol, changePct: x.changePct, minTs: x.minTs, maxTs: x.maxTs }))
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify(out))
+    } catch (e) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify({}))
+    }
+    return
+  }
   if (reqPath.startsWith('/api/agg/symbol')) {
     if (!ensureAuth(req, res)) return
     try {

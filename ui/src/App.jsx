@@ -55,61 +55,37 @@ function onRowDblClick(e, symbol) {
   try { window.open(url, '_blank') } catch { void 0 }
 }
 
-function useMetrics(windowSec, token) {
-  const [rows, setRows] = useState([])
-  const timerRef = useRef(null)
-  const authTokenRef = useRef(token || null)
-  const initialDelayRef = useRef(null)
-  const prevTopRef = useRef(new Set())
-  const [highlightSet, setHighlightSet] = useState(new Set())
-  // lastRefreshAt was replaced by nextRefreshTs flow; kept only nextRefreshTs
+function useBatchMetrics(token) {
+  const [rowsByWindow, setRowsByWindow] = useState({})
   const [nextRefreshTs, setNextRefreshTs] = useState(null)
-  const countsRef = useRef(new Map())
-  const [rankCounts, setRankCounts] = useState({})
-
+  const timerRef = useRef(null)
+  const initialDelayRef = useRef(null)
+  const authTokenRef = useRef(token || null)
   useEffect(() => {
     authTokenRef.current = token || null
     const headers = authTokenRef.current ? { Authorization: 'Bearer ' + authTokenRef.current } : {}
     let alive = true
     async function load() {
       try {
-        const res = await fetch(`/api/metrics?window=${windowSec}&limit=20`, { headers })
+        const winList = windows.map(w => w.sec).join(',')
+        const res = await fetch(`/api/metrics/batch?windows=${winList}&limit=20`, { headers })
         if (res.status === 401) {
           try { localStorage.removeItem('authToken') } catch { void 0 }
-          setRows([])
+          setRowsByWindow({})
           setNextRefreshTs(Date.now() + 20000)
           return
         }
-        const arr = await res.json()
-        const out = Array.isArray(arr) ? arr.map(r => ({ symbol: r.symbol, changePct: Number(r.changePct || 0), minTs: Number(r.minTs || NaN), maxTs: Number(r.maxTs || NaN) })) : []
-        if (alive) {
-          setRows(out)
-          try {
-            const topSymbols = out.slice(0,20).map(r=>r.symbol)
-            const prevSet = prevTopRef.current || new Set()
-            let changed = false
-            if (prevSet.size !== topSymbols.length) changed = true
-            if (!changed) {
-              for (const s of topSymbols) { if (!prevSet.has(s)) { changed = true; break } }
-              if (!changed) {
-                for (const s of prevSet) { if (!topSymbols.includes(s)) { changed = true; break } }
-              }
-            }
-            if (changed) {
-              const ns = new Set()
-              for (const s of topSymbols) { if (!prevSet.has(s)) ns.add(s) }
-              setHighlightSet(ns)
-              prevTopRef.current = new Set(topSymbols)
-            }
-            const m = countsRef.current || new Map()
-            const topSet = new Set(topSymbols)
-            for (const s of topSymbols) { m.set(s, Number(m.get(s) || 0) + 1) }
-            for (const [sym] of Array.from(m.entries())) { if (!topSet.has(sym)) m.set(sym, 0) }
-            countsRef.current = m
-            setRankCounts(Object.fromEntries(m.entries()))
-          } catch { void 0 }
-        }
-      } catch { void 0 }
+        const obj = await res.json()
+        const out = {}
+        try {
+          for (const k of Object.keys(obj || {})) {
+            const sec = Number(k)
+            const arr = Array.isArray(obj[k]) ? obj[k] : []
+            out[sec] = arr.map(r => ({ symbol: r.symbol, changePct: Number(r.changePct || 0), minTs: Number(r.minTs || NaN), maxTs: Number(r.maxTs || NaN) }))
+          }
+        } catch { }
+        if (alive) setRowsByWindow(out)
+      } catch { }
       setNextRefreshTs(Date.now() + 20000)
     }
     if (initialDelayRef.current == null) initialDelayRef.current = Math.floor(Math.random() * 500)
@@ -117,13 +93,15 @@ function useMetrics(windowSec, token) {
     setTimeout(async () => { await load() }, initialDelayRef.current)
     timerRef.current = setInterval(() => { load() }, 20000)
     return () => { alive = false; if (timerRef.current) clearInterval(timerRef.current) }
-  }, [windowSec, token])
-
-  return { rows, highlightSet, nextRefreshTs, rankCounts }
+  }, [token])
+  return { rowsByWindow, nextRefreshTs }
 }
 
-function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbol, ignoredSet, onRequestIgnore }) {
-  const { rows, highlightSet, nextRefreshTs, rankCounts } = useMetrics(windowSec, token)
+function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol, onSelectSymbol, ignoredSet, onRequestIgnore }) {
+  const prevTopRef = useRef(new Set())
+  const [highlightSet, setHighlightSet] = useState(new Set())
+  const countsRef = useRef(new Map())
+  const [rankCounts, setRankCounts] = useState({})
   const [remainSec, setRemainSec] = useState(0)
   const pressTimerRef = useRef(null)
   const didLongPressRef = useRef(false)
@@ -163,6 +141,32 @@ function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbo
     })
     return sorted.slice(0,20)
   })()
+  useEffect(() => {
+    try {
+      const topSymbols = rows.slice(0,20).map(r=>r.symbol)
+      const prevSet = prevTopRef.current || new Set()
+      let changed = false
+      if (prevSet.size !== topSymbols.length) changed = true
+      if (!changed) {
+        for (const s of topSymbols) { if (!prevSet.has(s)) { changed = true; break } }
+        if (!changed) {
+          for (const s of prevSet) { if (!topSymbols.includes(s)) { changed = true; break } }
+        }
+      }
+      if (changed) {
+        const ns = new Set()
+        for (const s of topSymbols) { if (!prevSet.has(s)) ns.add(s) }
+        setHighlightSet(ns)
+        prevTopRef.current = new Set(topSymbols)
+      }
+      const m = countsRef.current || new Map()
+      const topSet = new Set(topSymbols)
+      for (const s of topSymbols) { m.set(s, Number(m.get(s) || 0) + 1) }
+      for (const [sym] of Array.from(m.entries())) { if (!topSet.has(sym)) m.set(sym, 0) }
+      countsRef.current = m
+      setRankCounts(Object.fromEntries(m.entries()))
+    } catch { }
+  }, [rows])
   useEffect(() => {
     function update() {
       if (nextRefreshTs != null) {
@@ -255,6 +259,7 @@ export default function App() {
   const [confirmIgnoreSymbol, setConfirmIgnoreSymbol] = useState(null)
   const [toastText, setToastText] = useState('')
   const toastTimerRef = useRef(null)
+  const { rowsByWindow, nextRefreshTs } = useBatchMetrics(token)
   function openRuleManager() {
     setDraftRules(Array.isArray(rules) ? [...rules] : [])
     setNewRuleText('')
@@ -634,7 +639,7 @@ export default function App() {
         </div>
       )}
       <div className="sections-grid">
-        {windows.map(it => <MetricsSection key={it.id} windowSec={it.sec} label={it.label} token={token} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} ignoredSet={new Set(ignoredTokens)} onRequestIgnore={requestIgnoreToken} />)}
+        {windows.map(it => <MetricsSection key={it.id} windowSec={it.sec} label={it.label} rows={(rowsByWindow[it.sec] || [])} nextRefreshTs={nextRefreshTs} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} ignoredSet={new Set(ignoredTokens)} onRequestIgnore={requestIgnoreToken} />)}
       </div>
     </div>
   )
