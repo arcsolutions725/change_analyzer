@@ -382,8 +382,10 @@ export default function App() {
   }
   async function serverAddIgnore(sym) {
     try {
+      console.log(sym)
       const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
       const res = await fetch('/api/ignored-tokens/add', { method: 'POST', headers, body: JSON.stringify({ symbol: String(sym) }) })
+      console.log(res.status)
       if (res.ok) return true
       const status = res.status
       if (status === 404 || status === 405) {
@@ -434,25 +436,22 @@ export default function App() {
     setConfirmIgnoreSymbol(String(symbol))
     setShowConfirmIgnoreDlg(true)
   }
-  function confirmIgnoreNow() {
-    const sym = confirmIgnoreSymbol
+  async function confirmIgnoreNow() {
+    if (confirmIgnoreSymbol) {
+      try {
+        const ok = await serverAddIgnore(String(confirmIgnoreSymbol))
+        if (!ok) {
+          showToast('Unlock required')
+        }
+        if (ok) {
+          setIgnoredTokens(prev => Array.from(new Set([...prev, String(confirmIgnoreSymbol)])))
+          await loadIgnoredTokensFromServer()
+        }
+      } catch { void 0 }
+    }
     setShowConfirmIgnoreDlg(false)
     setConfirmIgnoreSymbol(null)
-    if (sym) {
-      try { showToast('Ignored ' + String(sym || '')) } catch { void 0 }
-      setTimeout(async () => {
-        try {
-          const ok = await serverAddIgnore(String(sym))
-          if (!ok) {
-            showToast('Unlock required')
-          }
-          if (ok) {
-            setIgnoredTokens(prev => Array.from(new Set([...prev, String(sym)])))
-            await loadIgnoredTokensFromServer()
-          }
-        } catch { void 0 }
-      }, 0)
-    }
+    try { showToast('Ignored ' + String(confirmIgnoreSymbol || '')) } catch { void 0 }
   }
   function cancelIgnoreNow() {
     setShowConfirmIgnoreDlg(false)
