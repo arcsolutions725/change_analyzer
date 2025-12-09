@@ -171,6 +171,13 @@ export default function App() {
   })
   const [selectedSymbol, setSelectedSymbol] = useState(null)
   const [pw, setPw] = useState('')
+  const [missions, setMissions] = useState(() => {
+    try {
+      const t = localStorage.getItem('missions')
+      const arr = t ? JSON.parse(t) : []
+      return Array.isArray(arr) ? arr.map(x => (typeof x === 'string' ? { text: x, status: 'current' } : { text: String(x && x.text || ''), status: ['achieved','current','not_achieved'].includes(String(x && x.status)) ? String(x.status) : 'current' })) : []
+    } catch { return [] }
+  })
   const [rules, setRules] = useState(() => {
     try {
       const t = localStorage.getItem('rules')
@@ -180,51 +187,66 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem('rules', JSON.stringify(rules)) } catch { void 0 }
   }, [rules])
-  const [globalRemain, setGlobalRemain] = useState('')
   useEffect(() => {
-    function computeGlobalRemain() {
-      try {
-        const secs = windows.map(w => {
-          const u = document.querySelector(`[data-sec="${w.sec}"]`)
-          if (!u) return null
-          const t = Number(u.getAttribute('data-remain') || '0')
-          return Number.isFinite(t) ? t : null
-        }).filter(v => v != null)
-        if (secs.length === 0) { setGlobalRemain(''); return }
-        const min = Math.min(...secs)
-        setGlobalRemain(String(min) + 's')
-      } catch { setGlobalRemain('') }
-    }
-    const id = setInterval(computeGlobalRemain, 1000)
-    computeGlobalRemain()
-    return () => clearInterval(id)
-  }, [])
+    try { localStorage.setItem('missions', JSON.stringify(missions)) } catch { void 0 }
+  }, [missions])
   const [showRuleDlg, setShowRuleDlg] = useState(false)
+  const [showMissionDlg, setShowMissionDlg] = useState(false)
   const [draftRules, setDraftRules] = useState([])
+  const [draftMissions, setDraftMissions] = useState([])
   const [newRuleText, setNewRuleText] = useState('')
+  const [newMissionText, setNewMissionText] = useState('')
   function openRuleManager() {
     setDraftRules(Array.isArray(rules) ? [...rules] : [])
     setNewRuleText('')
     setShowRuleDlg(true)
   }
+  function openMissionManager() {
+    setDraftMissions(Array.isArray(missions) ? missions.map(m => ({ text: String(m && m.text || ''), status: String(m && m.status || 'current') })) : [])
+    setNewMissionText('')
+    setShowMissionDlg(true)
+  }
   function closeRuleManager() {
     setShowRuleDlg(false)
+  }
+  function closeMissionManager() {
+    setShowMissionDlg(false)
   }
   function saveRuleManager() {
     setRules(draftRules)
     setShowRuleDlg(false)
   }
+  function saveMissionManager() {
+    setMissions(draftMissions)
+    setShowMissionDlg(false)
+  }
   function updateDraftRule(i, text) {
     setDraftRules(prev => prev.map((r, idx) => idx === i ? text : r))
   }
+  function updateDraftMission(i, text) {
+    setDraftMissions(prev => prev.map((r, idx) => idx === i ? { ...r, text } : r))
+  }
+  function setDraftMissionStatus(i, status) {
+    const st = ['achieved','current','not_achieved'].includes(String(status)) ? String(status) : 'current'
+    setDraftMissions(prev => prev.map((r, idx) => idx === i ? { ...r, status: st } : r))
+  }
   function deleteDraftRule(i) {
     setDraftRules(prev => prev.filter((_, idx) => idx !== i))
+  }
+  function deleteDraftMission(i) {
+    setDraftMissions(prev => prev.filter((_, idx) => idx !== i))
   }
   function addDraftRule() {
     const t = String(newRuleText || '').trim()
     if (!t) return
     setDraftRules(prev => [...prev, t])
     setNewRuleText('')
+  }
+  function addDraftMission() {
+    const t = String(newMissionText || '').trim()
+    if (!t) return
+    setDraftMissions(prev => [...prev, { text: t, status: 'current' }])
+    setNewMissionText('')
   }
   
 
@@ -259,7 +281,7 @@ export default function App() {
       <header className="sticky-wrap">
         <div className="toolbar">
           <div className="brand"><span style={{display:'inline-flex',alignItems:'center',gap:6}}><svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" rx="4" fill="#0f1115"/><path d="M4 16l5-5 4 3 7-7" stroke="#17c964" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg> Keep Rules for Success!</span></div>
-          <div className="timers">Next refresh: {globalRemain}</div>
+          
           <div className="rule-bar">
             {rules.map((r,i) => (
               <>
@@ -268,8 +290,17 @@ export default function App() {
               </>
             ))}
           </div>
+          <div className="mission-bar">
+            {missions.map((m,i) => (
+              <>
+                <span key={i} className={'mission-chip ' + String(m && m.status || 'current')}><span className="icon">{String(m && m.status)==='achieved' ? '✓' : (String(m && m.status)==='current' ? '•' : '✗')}</span><span className="text nowrap">{String(m && m.text || '')}</span></span>
+                {i < missions.length - 1 ? <span className="rule-sep" /> : null}
+              </>
+            ))}
+          </div>
           <div className="toolbar-spacer" />
           <button className={'seg-option'} onClick={openRuleManager}>Manage Rules</button>
+          <button className={'seg-option'} onClick={openMissionManager}>Manage Missions</button>
         </div>
       </header>
       {showRuleDlg && (
@@ -291,6 +322,34 @@ export default function App() {
             <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
               <button className="seg-option" onClick={closeRuleManager}>Cancel</button>
               <button className="seg-option active" onClick={saveRuleManager}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showMissionDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:380,maxWidth:700,width:'60%'}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Manage Missions</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'50vh',overflow:'auto'}}>
+              {draftMissions.map((r,i) => (
+                <div key={i} style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <input className="rule-input" value={String(r && r.text || '')} onChange={e=>updateDraftMission(i, e.target.value)} placeholder="Mission" />
+                  <div className="mission-status">
+                    <button className={'mission-btn achieved '+ (String(r && r.status)==='achieved' ? 'active' : '')} onClick={()=>setDraftMissionStatus(i,'achieved')}>Achieved</button>
+                    <button className={'mission-btn current '+ (String(r && r.status)==='current' ? 'active' : '')} onClick={()=>setDraftMissionStatus(i,'current')}>Current</button>
+                    <button className={'mission-btn not_achieved '+ (String(r && r.status)==='not_achieved' ? 'active' : '')} onClick={()=>setDraftMissionStatus(i,'not_achieved')}>Non-achieved</button>
+                  </div>
+                  <button className="seg-option" onClick={()=>deleteDraftMission(i)}>Delete</button>
+                </div>
+              ))}
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input className="rule-input" placeholder="New mission" value={newMissionText} onChange={e=>setNewMissionText(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter') addDraftMission() }} />
+                <button className="seg-option" onClick={addDraftMission}>Add</button>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option" onClick={closeMissionManager}>Cancel</button>
+              <button className="seg-option active" onClick={saveMissionManager}>Save</button>
             </div>
           </div>
         </div>

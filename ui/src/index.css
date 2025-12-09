@@ -112,3 +112,15 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
   100% { text-shadow: 0 0 0 rgba(255, 77, 79, 0.0) }
 }
 .rule-chip.warn { animation: pulseWarn 1.6s ease-in-out infinite }
+.mission-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+.toolbar .rule-bar + .mission-bar { margin-left: 16px }
+.mission-chip { display:inline-flex; align-items:center; gap:6px; color:#78e7b0; padding:0; border-radius:0; background: transparent; border: 0; box-shadow: none }
+.mission-chip .icon { margin-right: 4px }
+.mission-chip.achieved { color:#17c964 }
+.mission-chip.current { color:#e6e6e6 }
+.mission-chip.not_achieved { color:#ff4d4f }
+.mission-status { display:flex; gap:6px; align-items:center }
+.mission-btn { padding:4px 10px; border-radius:999px; border:1px solid #2a3140; background:#141821; color:#e6e6e6; cursor:pointer; font-size:12px }
+.mission-btn.achieved.active { background:#17c964; color:#0f1115; border-color:#17c964 }
+.mission-btn.current.active { background:#e6e6e6; color:#0f1115; border-color:#e6e6e6 }
+.mission-btn.not_achieved.active { background:#ff4d4f; color:#0f1115; border-color:#ff4d4f }
