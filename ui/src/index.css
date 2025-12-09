@@ -82,6 +82,10 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 .right table { table-layout: fixed; min-width: 2000px }
 .right { border-left: 1px solid #212633; padding-left: 8px }
 .row { transition: none }
+.row.selected td { background:#1a2130; border-top: 1px solid #78e7b0; border-bottom: 1px solid #78e7b0 }
+.row.selected td:first-child { border-left: 1px solid #78e7b0 }
+.row.selected td:last-child { border-right: 1px solid #78e7b0 }
+.row.selected { background: transparent }
 .num { text-align: right; font-feature-settings: "tnum" 1, "lnum" 1 }
 .muted { color:#8a8f9c }
 .pos { color:#17c964 }

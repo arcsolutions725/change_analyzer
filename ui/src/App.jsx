@@ -25,7 +25,7 @@ function copyText(text) {
       navigator.clipboard.writeText(String(text))
       return
     }
-  } catch {}
+  } catch { void 0 }
   try {
     const ta = document.createElement('textarea')
     ta.value = String(text)
@@ -35,7 +35,7 @@ function copyText(text) {
     ta.focus(); ta.select()
     document.execCommand('copy')
     document.body.removeChild(ta)
-  } catch {}
+  } catch { void 0 }
 }
 function copyTokenCompact(symbol) {
   copyText(String(symbol).replace('_',''))
@@ -74,7 +74,7 @@ function useMetrics(windowSec, token) {
       try {
         const res = await fetch(`/api/metrics?window=${windowSec}&limit=100`, { headers })
         if (res.status === 401) {
-          try { localStorage.removeItem('authToken') } catch {}
+          try { localStorage.removeItem('authToken') } catch { void 0 }
           setRows([])
           setNextRefreshTs(Date.now() + 20000)
           return
@@ -116,9 +116,11 @@ function useMetrics(windowSec, token) {
   return { rows, highlightSet, nextRefreshTs }
 }
 
-function MetricsSection({ windowSec, label, token }) {
-  const { rows, highlightSet, nextRefreshTs } = useMetrics(windowSec, token)
+function MetricsSection({ windowSec, label, token, selectedSymbol, onSelectSymbol }) {
+  const { rows, nextRefreshTs } = useMetrics(windowSec, token)
   const [remainSec, setRemainSec] = useState(0)
+  function handleRowClick(e, symbol) { onSelectSymbol(symbol); onRowClick(e, symbol) }
+  function handlePairClick(e, symbol) { onSelectSymbol(symbol); onPairClick(e, symbol) }
   useEffect(() => {
     function update() {
       if (nextRefreshTs != null) {
@@ -143,9 +145,9 @@ function MetricsSection({ windowSec, label, token }) {
         </thead>
         <tbody>
           {rows.slice(0,20).map((r,i) => (
-            <tr key={r.symbol} className={'row'} onClick={(e)=>{ onRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
+            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected' : '')} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
               <td className="num col-no">{i+1}</td>
-              <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>onPairClick(e,r.symbol)}>{r.symbol.replace('_','/')}</td>
+              <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>{r.symbol.replace('_','/')}</td>
               {(() => {
                 const cls = (Number(r.minTs) < Number(r.maxTs)) ? 'pos' : (Number(r.minTs) > Number(r.maxTs) ? 'neg' : 'muted')
                 const cur = Number(r.changePct || 0)
@@ -167,6 +169,7 @@ export default function App() {
   const [token, setToken] = useState(() => {
     try { return localStorage.getItem('authToken') || null } catch { return null }
   })
+  const [selectedSymbol, setSelectedSymbol] = useState(null)
   const [pw, setPw] = useState('')
   const [rules, setRules] = useState(() => {
     try {
@@ -293,7 +296,7 @@ export default function App() {
         </div>
       )}
       <div className="sections-grid">
-        {windows.map(it => <MetricsSection key={it.id} windowSec={it.sec} label={it.label} token={token} />)}
+        {windows.map(it => <MetricsSection key={it.id} windowSec={it.sec} label={it.label} token={token} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} />)}
       </div>
     </div>
   )
