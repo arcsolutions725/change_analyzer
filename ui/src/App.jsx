@@ -102,6 +102,11 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
   const [highlightSet, setHighlightSet] = useState(new Set())
   const countsRef = useRef(new Map())
   const [rankCounts, setRankCounts] = useState({})
+  const [noteText, setNoteText] = useState(() => {
+    try { return localStorage.getItem('note:'+String(windowSec)) || '' } catch { return '' }
+  })
+  const prevRanksRef = useRef(new Map())
+  const [rankUpSet, setRankUpSet] = useState(new Set())
   const [remainSec, setRemainSec] = useState(0)
   const pressTimerRef = useRef(null)
   const didLongPressRef = useRef(false)
@@ -168,6 +173,25 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
     } catch { }
   }, [rows])
   useEffect(() => {
+    try {
+      const ordered = [...rows].sort((a,b) => Number(b.changePct||0) - Number(a.changePct||0))
+      const ranks = new Map(ordered.map((r,idx) => [r.symbol, idx]))
+      const prevRanks = prevRanksRef.current || new Map()
+      const up = new Set()
+      for (const [sym, rank] of ranks.entries()) {
+        if (prevRanks.has(sym)) {
+          const prev = Number(prevRanks.get(sym))
+          if (rank < prev) up.add(sym)
+        }
+      }
+      setRankUpSet(up)
+      prevRanksRef.current = ranks
+    } catch { }
+  }, [rows])
+  useEffect(() => {
+    try { localStorage.setItem('note:'+String(windowSec), String(noteText || '')) } catch { void 0 }
+  }, [windowSec, noteText])
+  useEffect(() => {
     function update() {
       if (nextRefreshTs != null) {
         const s = Math.max(0, Math.ceil((nextRefreshTs - Date.now())/1000))
@@ -180,7 +204,7 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
   }, [nextRefreshTs])
   return (
     <div className="section" data-sec={windowSec} data-remain={remainSec}>
-      <div className="section-title">{label}</div>
+      <div className="section-title">{label} <input className="rule-input" value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Note" /></div>
       <table>
         <thead>
           <tr>
@@ -191,7 +215,7 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
         </thead>
         <tbody>
           {displayedRows.map((r) => (
-            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new' : '')} onMouseDown={()=>startPress(r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
+            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new ' : '') + (rankUpSet && rankUpSet.has(r.symbol) ? 'up' : '')} onMouseDown={()=>startPress(r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
               <td className="num col-no">{Number((rankCounts && rankCounts[r.symbol]) || 0)}</td>
               <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>{r.symbol.replace('_','/')}</td>
               {(() => {

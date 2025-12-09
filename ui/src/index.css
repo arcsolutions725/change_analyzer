@@ -83,6 +83,7 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 .right { border-left: 1px solid #212633; padding-left: 8px }
 .row { transition: none }
 .row.new td { background: rgba(255, 230, 90, 0.1) }
+.row.up td { background: rgba(23, 201, 100, 0.12) }
 .row.selected td { border-top: 1px solid rgba(120, 231, 176, 0.5); border-bottom: 1px solid rgba(120, 231, 176, 0.5) }
 .row.selected td:first-child { border-left: 1px solid rgba(120, 231, 176, 0.5) }
 .row.selected td:last-child { border-right: 1px solid rgba(120, 231, 176, 0.5) }
@@ -107,7 +108,7 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 .rule-sep { width: 1px; height: 20px; background: #2a3140; margin: 0 8px }
 .rule-btn { display:none }
 .rule-btn:hover { display:none }
-.rule-input { background:#141821; color:#e6e6e6; border:1px solid #2a3140; border-radius:8px; padding:6px 8px; outline:none; min-width:180px }
+.rule-input { background:#141821; color:#e6e6e6; border:1px solid #2a3140; border-radius:8px; padding:6px 8px; outline:none; min-width:180px; margin-left: 30px; }
 .chip { display:inline-flex; align-items:center; gap:6px }
 .rule-chip.warn { background: transparent; color:#ff4d4f }
 @keyframes pulseWarn {
