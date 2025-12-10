@@ -4,8 +4,8 @@ import './index.css'
 const windows = [
   { id: 'w1m', label: '1m', sec: 60 },
   { id: 'w2m', label: '2m', sec: 120 },
+  { id: 'w3m', label: '3m', sec: 180 },
   { id: 'w5m', label: '5m', sec: 300 },
-  { id: 'w10m', label: '10m', sec: 600 },
   { id: 'w1h', label: '1h', sec: 3600 },
 ]
 
@@ -81,7 +81,7 @@ function useBatchMetrics(token) {
           for (const k of Object.keys(obj || {})) {
             const sec = Number(k)
             const arr = Array.isArray(obj[k]) ? obj[k] : []
-            out[sec] = arr.map(r => ({ symbol: r.symbol, changePct: Number(r.changePct || 0), minTs: Number(r.minTs || NaN), maxTs: Number(r.maxTs || NaN) }))
+            out[sec] = arr.map(r => ({ symbol: r.symbol, changePct: Number(r.changePct || 0), minTs: Number(r.minTs || NaN), maxTs: Number(r.maxTs || NaN), current: Number(r.current || NaN) }))
           }
         } catch { }
         if (alive) setRowsByWindow(out)
@@ -105,6 +105,8 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
   const [noteText, setNoteText] = useState(() => {
     try { return localStorage.getItem('note:'+String(windowSec)) || '' } catch { return '' }
   })
+  const prevChangeRef = useRef(new Map())
+  const prevPriceRef = useRef(new Map())
   const prevRanksRef = useRef(new Map())
   const [rankUpSet, setRankUpSet] = useState(new Set())
   const [remainSec, setRemainSec] = useState(0)
@@ -165,10 +167,34 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
         prevTopRef.current = new Set(topSymbols)
       }
       const m = countsRef.current || new Map()
-      const topSet = new Set(topSymbols)
-      for (const s of topSymbols) { m.set(s, Number(m.get(s) || 0) + 1) }
-      for (const [sym] of Array.from(m.entries())) { if (!topSet.has(sym)) m.set(sym, 0) }
+      const prevMap = prevChangeRef.current || new Map()
+      const prevPriceMap = prevPriceRef.current || new Map()
+      const present = new Set()
+      for (const r of rows) {
+        const sym = r.symbol
+        present.add(sym)
+        const dir = (Number(r.minTs) < Number(r.maxTs)) ? 1 : ((Number(r.minTs) > Number(r.maxTs)) ? -1 : 0)
+        const curPrice = Number(r.current)
+        const prevPrice = prevPriceMap.has(sym) ? Number(prevPriceMap.get(sym)) : NaN
+        if (!Number.isNaN(prevPrice) && dir !== 0) {
+          const priceDiff = curPrice - prevPrice
+          const priceSign = priceDiff > 0 ? 1 : (priceDiff < 0 ? -1 : 0)
+          const streak = Number(m.get(sym) || 0)
+          const follows = (dir === priceSign)
+          m.set(sym, follows ? (streak + 1) : Math.max(streak - 1, 0))
+        } else if (!Number.isNaN(prevPrice) && dir === 0) {
+          const streak = Number(m.get(sym) || 0)
+          m.set(sym, Math.max(streak - 1, 0))
+        } else {
+          m.set(sym, 0)
+        }
+        prevMap.set(sym, Number(r.changePct || 0))
+        prevPriceMap.set(sym, curPrice)
+      }
+      for (const [sym] of Array.from(m.entries())) { if (!present.has(sym)) m.set(sym, 0) }
       countsRef.current = m
+      prevChangeRef.current = prevMap
+      prevPriceRef.current = prevPriceMap
       setRankCounts(Object.fromEntries(m.entries()))
     } catch { }
   }, [rows])
@@ -220,9 +246,9 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
               <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>{r.symbol.replace('_','/')}</td>
               {(() => {
                 const cls = (Number(r.minTs) < Number(r.maxTs)) ? 'pos' : (Number(r.minTs) > Number(r.maxTs) ? 'neg' : 'muted')
-                const cur = Number(r.changePct || 0)
-                return (
-                  <>
+               const cur = Number(r.changePct || 0)
+               return (
+                 <>
                     <td className={'num cell '+cls}>{cur.toFixed(2)}%</td>
                   </>
                 )

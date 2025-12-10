@@ -390,6 +390,8 @@ const server = http.createServer(async (req, res) => {
       const windowsList = requested.length > 0 ? requested : Array.from(ALLOWED_METRIC_WINDOWS)
       const limit = Math.min(20, Math.max(1, Number(u.searchParams.get('limit') || '20')))
       const out = {}
+      const [latest] = await dbPool.query('SELECT p.symbol, p.price FROM prices p JOIN (SELECT symbol, MAX(ts) AS ts FROM prices GROUP BY symbol) x ON x.symbol = p.symbol AND x.ts = p.ts')
+      const curMap = new Map(latest.map(r => [r.symbol, Number(r.price)]))
       for (const windowSec of windowsList) {
         const cutoff = Date.now() - (windowSec * 1000)
         const [mm] = await dbPool.query(`
@@ -418,10 +420,11 @@ const server = http.createServer(async (req, res) => {
           const minTs = r.min_ts != null ? Number(r.min_ts) : null
           const maxTs = r.max_ts != null ? Number(r.max_ts) : null
           const changePct = (maxp / minp) * 100
-          items.push({ symbol: sym, changePct, minTs, maxTs })
+          const current = curMap.has(sym) ? curMap.get(sym) : null
+          items.push({ symbol: sym, changePct, minTs, maxTs, current })
         }
         items.sort((a,b) => Number(b.changePct || 0) - Number(a.changePct || 0))
-        out[String(windowSec)] = items.slice(0, limit).map(x => ({ symbol: x.symbol, changePct: x.changePct, minTs: x.minTs, maxTs: x.maxTs }))
+        out[String(windowSec)] = items.slice(0, limit).map(x => ({ symbol: x.symbol, changePct: x.changePct, minTs: x.minTs, maxTs: x.maxTs, current: x.current }))
       }
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
       res.end(JSON.stringify(out))
@@ -539,8 +542,8 @@ const server = http.createServer(async (req, res) => {
     if (!ensureAuth(req, res)) return
     try {
       const u = new URL('http://x' + req.url)
-      let windowSec = Number(u.searchParams.get('window') || '600')
-      if (!ALLOWED_METRIC_WINDOWS.has(windowSec)) windowSec = 600
+      let windowSec = Number(u.searchParams.get('window') || '60')
+      if (!ALLOWED_METRIC_WINDOWS.has(windowSec)) windowSec = 60
       const limit = Math.min(20, Math.max(1, Number(u.searchParams.get('limit') || '20')))
       if (!dbPool || windowSec <= 0) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify([])); return }
       const cacheKey = `${windowSec}:${limit}`
@@ -551,6 +554,8 @@ const server = http.createServer(async (req, res) => {
         return
       }
       const cutoff = Date.now() - (windowSec * 1000)
+      const [latest] = await dbPool.query('SELECT p.symbol, p.price FROM prices p JOIN (SELECT symbol, MAX(ts) AS ts FROM prices GROUP BY symbol) x ON x.symbol = p.symbol AND x.ts = p.ts')
+      const curMap = new Map(latest.map(r => [r.symbol, Number(r.price)]))
       const [mm] = await dbPool.query(`
         WITH windowed AS (
           SELECT symbol, price, ts,
@@ -577,10 +582,11 @@ const server = http.createServer(async (req, res) => {
         const minTs = r.min_ts != null ? Number(r.min_ts) : null
         const maxTs = r.max_ts != null ? Number(r.max_ts) : null
         const changePct = (maxp / minp) * 100
-        items.push({ symbol: sym, changePct, minTs, maxTs })
+        const current = curMap.has(sym) ? curMap.get(sym) : null
+        items.push({ symbol: sym, changePct, minTs, maxTs, current })
       }
       items.sort((a,b) => Number(b.changePct || 0) - Number(a.changePct || 0))
-      const out = items.slice(0, limit).map(x => ({ symbol: x.symbol, changePct: x.changePct, minTs: x.minTs, maxTs: x.maxTs }))
+      const out = items.slice(0, limit).map(x => ({ symbol: x.symbol, changePct: x.changePct, minTs: x.minTs, maxTs: x.maxTs, current: x.current }))
       metricsCache.set(cacheKey, { ts: Date.now(), data: out })
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
       res.end(JSON.stringify(out))
@@ -652,7 +658,7 @@ async function fetchJson(urlStr) {
 
 const metricsCache = new Map()
 const METRICS_CACHE_MS = 10000
-const ALLOWED_METRIC_WINDOWS = new Set([60, 120, 300, 600, 3600])
+const ALLOWED_METRIC_WINDOWS = new Set([60, 120, 180, 300, 3600])
 
 let lastPayload = null
 async function pollAndBroadcast() {
