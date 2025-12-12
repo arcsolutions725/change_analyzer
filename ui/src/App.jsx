@@ -255,7 +255,7 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
         </thead>
         <tbody>
           {displayedRows.map((r) => (
-            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new ' : '') + (rankUpSet && rankUpSet.has(r.symbol) ? 'up' : '') + (checkedSet && checkedSet.has(r.symbol) ? 'checked ' : '')} onMouseDown={(e)=>startPress(e,r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onContextMenu={(e)=>{ e.preventDefault() }} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
+            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new ' : '') + (rankUpSet && rankUpSet.has(r.symbol) ? 'up ' : '') + (checkedSet && checkedSet.has(r.symbol) ? 'checked ' : '')} onMouseDown={(e)=>startPress(e,r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onContextMenu={(e)=>{ e.preventDefault() }} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
               <td className="num"><input type="checkbox" checked={Boolean(checkedSet && checkedSet.has(r.symbol))} onChange={()=>onToggleChecked(r.symbol)} onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} /></td>
               <td className="num col-no">{Number((rankCounts && rankCounts[r.symbol]) || 0)}</td>
               <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>

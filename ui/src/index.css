@@ -87,8 +87,8 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 .right { border-left: 1px solid #212633; padding-left: 8px }
 .row { transition: none }
 .row.new td { background: rgba(255, 230, 90, 0.1) }
-.row.checked td { background: rgba(23, 201, 100, 0.32) }
-.row.selected td { background: rgba(80, 150, 255, 0.50) !important }
+.row.checked td { background: rgba(23, 201, 100, 0.40) !important }
+.row.selected td { background: rgba(0, 0, 255, 0.50) !important }
 .row.selected td { border-top: 1px solid rgba(120, 231, 176, 0.5); border-bottom: 1px solid rgba(120, 231, 176, 0.5) }
 .row.selected td:first-child { border-left: 1px solid rgba(120, 231, 176, 0.5) }
 .row.selected td:last-child { border-right: 1px solid rgba(120, 231, 176, 0.5) }
