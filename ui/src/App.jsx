@@ -779,11 +779,11 @@ export default function App() {
           <button className={'seg-option '+(showCheckedOnly?'active':'')} onClick={()=>setShowCheckedOnly(v=>!v)} title="Show Checked Only">Checked</button>
           <button className={'seg-option '+(showNewOnly?'active':'')} onClick={()=>setShowNewOnly(v=>!v)} title="Show New Only">New</button>
           <div className="toolbar-spacer" />
-          <button className={'seg-option'} onClick={openHelpDlg} title="Help"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="#e6e6e6" strokeWidth="2" fill="none"/><text x="12" y="16" textAnchor="middle" fontSize="12" fill="#e6e6e6">?</text></svg></button>
           <button className={'seg-option'} onClick={openRuleManager} title="Manage Rules"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h16M4 12h16M4 18h16" stroke="#e6e6e6" strokeWidth="2" fill="none" strokeLinecap="round"/></svg></button>
           <button className={'seg-option'} onClick={openMissionManager} title="Manage Missions"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6 4v16" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/><path d="M6 4h11l-4 3 4 3H6" fill="#e6e6e6"/></svg></button>
           <button className={'seg-option'} onClick={openIgnoredManager} title="Manage Ignored"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="#e6e6e6" strokeWidth="2" fill="none"/><path d="M5 5l14 14" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/></svg></button>
           <button className={'seg-option'} onClick={openProgressManager} title="Manage Progress"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="6" width="4" height="12" fill="#e6e6e6"/><rect x="10" y="10" width="4" height="8" fill="#e6e6e6"/><rect x="16" y="13" width="4" height="5" fill="#e6e6e6"/></svg></button>
+          <button className={'seg-option'} onClick={openHelpDlg} title="Help"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="#e6e6e6" strokeWidth="2" fill="none"/><text x="12" y="16" textAnchor="middle" fontSize="12" fill="#e6e6e6">?</text></svg></button>
         </div>
       </header>
       {showRuleDlg && (
