@@ -83,9 +83,9 @@ function useBatchMetrics(token) {
             const arr = Array.isArray(obj[k]) ? obj[k] : []
             out[sec] = arr.map(r => ({ symbol: r.symbol, changePct: Number(r.changePct || 0), minTs: Number(r.minTs || NaN), maxTs: Number(r.maxTs || NaN), current: Number(r.current || NaN) }))
           }
-        } catch { }
+        } catch { void 0 }
         if (alive) setRowsByWindow(out)
-      } catch { }
+      } catch { void 0 }
       setNextRefreshTs(Date.now() + 20000)
     }
     if (initialDelayRef.current == null) initialDelayRef.current = Math.floor(Math.random() * 500)
@@ -97,7 +97,7 @@ function useBatchMetrics(token) {
   return { rowsByWindow, nextRefreshTs }
 }
 
-function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol, onSelectSymbol, ignoredSet, onRequestIgnore }) {
+function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol, onSelectSymbol, ignoredSet, onRequestIgnore, checkedSet, onToggleChecked, showCheckedOnly, newBadgesSet, onToggleNewBadge, showNewOnly }) {
   const prevTopRef = useRef(new Set())
   const [highlightSet, setHighlightSet] = useState(new Set())
   const countsRef = useRef(new Map())
@@ -129,10 +129,18 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
   }, [windowSec, sortMode, sortDir])
   function handleRowClick(e, symbol) { if (didLongPressRef.current) { didLongPressRef.current = false; return } onSelectSymbol(symbol); onRowClick(e, symbol) }
   function handlePairClick(e, symbol) { onSelectSymbol(symbol); onPairClick(e, symbol) }
-  function startPress(symbol) {
+  function startPress(e, symbol) {
     clearTimeout(pressTimerRef.current)
     didLongPressRef.current = false
-    pressTimerRef.current = setTimeout(() => { didLongPressRef.current = true; onRequestIgnore(symbol) }, 600)
+    const btn = (e && typeof e.button === 'number') ? e.button : 0
+    pressTimerRef.current = setTimeout(() => {
+      didLongPressRef.current = true
+      if (btn === 2) {
+        onToggleNewBadge(symbol)
+      } else {
+        onRequestIgnore(symbol)
+      }
+    }, 600)
   }
   function endPress() { clearTimeout(pressTimerRef.current); pressTimerRef.current = null }
   function toggleSort(mode) {
@@ -140,7 +148,12 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
   }
   function metricVal(r) { return sortMode === 'count' ? Number((rankCounts && rankCounts[r.symbol]) || 0) : Number(r.changePct || 0) }
   const displayedRows = (() => {
-    const filtered = rows.filter(rr => !(ignoredSet && ignoredSet.has(rr.symbol)))
+    const filtered = rows.filter(rr => {
+      if (ignoredSet && ignoredSet.has(rr.symbol)) return false
+      if (showCheckedOnly && !(checkedSet && checkedSet.has(rr.symbol))) return false
+      if (showNewOnly && !(newBadgesSet && newBadgesSet.has(rr.symbol))) return false
+      return true
+    })
     const sorted = [...filtered].sort((a,b) => {
       const va = metricVal(a)
       const vb = metricVal(b)
@@ -163,7 +176,7 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
       if (changed) {
         const ns = new Set()
         for (const s of topSymbols) { if (!prevSet.has(s)) ns.add(s) }
-        setHighlightSet(ns)
+        setTimeout(() => { setHighlightSet(ns) }, 0)
         prevTopRef.current = new Set(topSymbols)
       }
       const m = countsRef.current || new Map()
@@ -195,8 +208,8 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
       countsRef.current = m
       prevChangeRef.current = prevMap
       prevPriceRef.current = prevPriceMap
-      setRankCounts(Object.fromEntries(m.entries()))
-    } catch { }
+      setTimeout(() => { try { setRankCounts(Object.fromEntries(m.entries())) } catch { void 0 } }, 0)
+    } catch { void 0 }
   }, [rows])
   useEffect(() => {
     try {
@@ -210,9 +223,9 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
           if (rank < prev) up.add(sym)
         }
       }
-      setRankUpSet(up)
+      setTimeout(() => { setRankUpSet(up) }, 0)
       prevRanksRef.current = ranks
-    } catch { }
+    } catch { void 0 }
   }, [rows])
   useEffect(() => {
     try { localStorage.setItem('note:'+String(windowSec), String(noteText || '')) } catch { void 0 }
@@ -234,21 +247,23 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
       <table>
         <thead>
           <tr>
+            <th className="nowrap"><div className="hdr"><span>#</span></div></th>
             <th className="nowrap col-no"><div className="hdr"><span>Count</span><button className={'hdr-btn ' + (sortMode==='count' ? 'active' : '')} onClick={()=>toggleSort('count')}>{sortMode==='count' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
             <th className="nowrap col-pair">Pair</th>
-            <th className="nowrap cell"><div className="hdr"><span>Change %</span><button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
+            <th className="nowrap cell"><div className="hdr"><span>%</span><button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
           </tr>
         </thead>
         <tbody>
           {displayedRows.map((r) => (
-            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new ' : '') + (rankUpSet && rankUpSet.has(r.symbol) ? 'up' : '')} onMouseDown={()=>startPress(r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
+            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new ' : '') + (rankUpSet && rankUpSet.has(r.symbol) ? 'up' : '')} onMouseDown={(e)=>startPress(e,r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onContextMenu={(e)=>{ e.preventDefault() }} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
+              <td className="num"><input type="checkbox" checked={Boolean(checkedSet && checkedSet.has(r.symbol))} onChange={()=>onToggleChecked(r.symbol)} onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} /></td>
               <td className="num col-no">{Number((rankCounts && rankCounts[r.symbol]) || 0)}</td>
-              <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>{r.symbol.replace('_','/')}</td>
+              <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>{r.symbol.replace('_','/')} {newBadgesSet && newBadgesSet.has(r.symbol) ? <span className="badge-new">N</span> : null}</td>
               {(() => {
                 const cls = (Number(r.minTs) < Number(r.maxTs)) ? 'pos' : (Number(r.minTs) > Number(r.maxTs) ? 'neg' : 'muted')
-               const cur = Number(r.changePct || 0)
-               return (
-                 <>
+                const cur = Number(r.changePct || 0)
+                return (
+                  <>
                     <td className={'num cell '+cls}>{cur.toFixed(2)}%</td>
                   </>
                 )
@@ -310,6 +325,67 @@ export default function App() {
   const [toastText, setToastText] = useState('')
   const toastTimerRef = useRef(null)
   const { rowsByWindow, nextRefreshTs } = useBatchMetrics(token)
+  const [progressItems, setProgressItems] = useState(() => {
+    try {
+      const t = localStorage.getItem('progressItems')
+      const arr = t ? JSON.parse(t) : []
+      return Array.isArray(arr) ? arr : []
+    } catch { return [] }
+  })
+  const [showProgressDlg, setShowProgressDlg] = useState(false)
+  const [draftProgress, setDraftProgress] = useState([])
+  const [dayInput, setDayInput] = useState('')
+  const [checkedTokens, setCheckedTokens] = useState(() => {
+    try {
+      const t = localStorage.getItem('checkedTokens')
+      const arr = t ? JSON.parse(t) : []
+      return new Set(Array.isArray(arr) ? arr.map(x => String(x)) : [])
+    } catch { return new Set() }
+  })
+  const [newBadges, setNewBadges] = useState(() => {
+    try {
+      const t = localStorage.getItem('newBadges')
+      const arr = t ? JSON.parse(t) : []
+      return new Set(Array.isArray(arr) ? arr.map(x => String(x)) : [])
+    } catch { return new Set() }
+  })
+  const [showCheckedOnly, setShowCheckedOnly] = useState(() => {
+    try { return localStorage.getItem('showCheckedOnly') === '1' } catch { return false }
+  })
+  const [showNewOnly, setShowNewOnly] = useState(() => {
+    try { return localStorage.getItem('showNewOnly') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('checkedTokens', JSON.stringify(Array.from((checkedTokens || new Set()).values()))) } catch { void 0 }
+  }, [checkedTokens])
+  useEffect(() => {
+    try { localStorage.setItem('newBadges', JSON.stringify(Array.from((newBadges || new Set()).values()))) } catch { void 0 }
+  }, [newBadges])
+  useEffect(() => {
+    try { localStorage.setItem('showCheckedOnly', showCheckedOnly ? '1' : '0') } catch { void 0 }
+  }, [showCheckedOnly])
+  useEffect(() => {
+    try { localStorage.setItem('showNewOnly', showNewOnly ? '1' : '0') } catch { void 0 }
+  }, [showNewOnly])
+  function toggleCheckedSymbol(sym) {
+    const s = String(sym)
+    setCheckedTokens(prev => {
+      const next = new Set(Array.from((prev || new Set()).values()))
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
+  }
+  function toggleNewBadge(sym) {
+    const s = String(sym)
+    setNewBadges(prev => {
+      const next = new Set(Array.from((prev || new Set()).values()))
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
+  }
+  useEffect(() => {
+    try { localStorage.setItem('progressItems', JSON.stringify(progressItems)) } catch { void 0 }
+  }, [progressItems])
   function openRuleManager() {
     setDraftRules(Array.isArray(rules) ? [...rules] : [])
     setNewRuleText('')
@@ -326,6 +402,12 @@ export default function App() {
     setShowIgnoredDlg(true)
     setTimeout(async () => { try { await loadIgnoredTokensFromServer(); setDraftIgnored(Array.isArray(ignoredTokens) ? [...ignoredTokens] : []) } catch { void 0 } }, 0)
   }
+  function openProgressManager() {
+    const base = Array.isArray(progressItems) && progressItems.length ? JSON.parse(JSON.stringify(progressItems)) : [{ name: 'Progress', days: [] }]
+    setDraftProgress(base)
+    setDayInput(todayStr())
+    setShowProgressDlg(true)
+  }
   function closeRuleManager() {
     setShowRuleDlg(false)
   }
@@ -335,6 +417,9 @@ export default function App() {
   function closeIgnoredManager() {
     setShowIgnoredDlg(false)
   }
+  function closeProgressManager() {
+    setShowProgressDlg(false)
+  }
   function saveRuleManager() {
     setRules(draftRules)
     setShowRuleDlg(false)
@@ -342,6 +427,10 @@ export default function App() {
   function saveMissionManager() {
     setMissions(draftMissions)
     setShowMissionDlg(false)
+  }
+  function saveProgressManager() {
+    setProgressItems(draftProgress)
+    setShowProgressDlg(false)
   }
   function saveIgnoredManager() {
     const uniq = Array.from(new Set(draftIgnored.filter(x => String(x).trim())))
@@ -422,6 +511,71 @@ export default function App() {
         showToast('Add failed')
       }
     } catch { showToast('Add failed') }
+  }
+  function addDayToSelected(d) {
+    const val = String(d || '').trim()
+    if (!val) return
+    setDraftProgress(prev => prev.length > 0 ? [{ ...prev[0], days: [...(Array.isArray(prev[0].days) ? prev[0].days : []), { date: val, trades: [] }] }, ...prev.slice(1)] : [{ name: 'Progress', days: [{ date: val, trades: [] }] }])
+  }
+  function todayStr() { const d = new Date(); const m = String(d.getMonth()+1).padStart(2,'0'); const dd = String(d.getDate()).padStart(2,'0'); return String(d.getFullYear())+'-'+m+'-'+dd }
+  function deleteDay(dayIdx) {
+    setDraftProgress(prev => {
+      if (!prev.length) return prev
+      const days = Array.isArray(prev[0].days) ? prev[0].days.filter((_, j) => j !== dayIdx) : []
+      const first = { ...prev[0], days }
+      return [first, ...prev.slice(1)]
+    })
+  }
+  function addTrade(dayIdx, status) {
+    setDraftProgress(prev => {
+      if (!prev.length) return prev
+      const it = prev[0]
+      const days = Array.isArray(it.days) ? [...it.days] : []
+      const d = days[dayIdx]
+      if (!d) return prev
+      const trades = Array.isArray(d.trades) ? [...d.trades, { id: String(Date.now())+'-'+Math.random(), status }] : [{ id: String(Date.now())+'-'+Math.random(), status }]
+      days[dayIdx] = { ...d, trades }
+      const first = { ...it, days }
+      return [first, ...prev.slice(1)]
+    })
+  }
+  function deleteTrade(dayIdx, tradeId) {
+    setDraftProgress(prev => {
+      if (!prev.length) return prev
+      const it = prev[0]
+      const days = Array.isArray(it.days) ? [...it.days] : []
+      const d = days[dayIdx]
+      if (!d) return prev
+      const trades = Array.isArray(d.trades) ? d.trades.filter(t => String(t && t.id) !== String(tradeId)) : []
+      days[dayIdx] = { ...d, trades }
+      const first = { ...it, days }
+      return [first, ...prev.slice(1)]
+    })
+  }
+  function successRate(trades) {
+    const list = Array.isArray(trades) ? trades : []
+    const total = list.length
+    if (total <= 0) return 0
+    const ok = list.filter(t => String(t && t.status) === 'success').length
+    return Math.round((ok / total) * 100)
+  }
+  function todayStats() {
+    const d = (()=>{ const d = new Date(); const m = String(d.getMonth()+1).padStart(2,'0'); const dd = String(d.getDate()).padStart(2,'0'); return String(d.getFullYear())+'-'+m+'-'+dd })()
+    const days = Array.isArray(progressItems && progressItems[0] && progressItems[0].days) ? progressItems[0].days : []
+    const list = days.filter(x => String(x && x.date) === d)
+    const trades = list.flatMap(x => Array.isArray(x && x.trades) ? x.trades : [])
+    const total = trades.length
+    const success = trades.filter(t => String(t && t.status) === 'success').length
+    const pct = total > 0 ? Math.round((success / total) * 100) : 0
+    return { success, total, pct }
+  }
+  function totalStats() {
+    const days = Array.isArray(progressItems && progressItems[0] && progressItems[0].days) ? progressItems[0].days : []
+    const trades = days.flatMap(x => Array.isArray(x && x.trades) ? x.trades : [])
+    const total = trades.length
+    const success = trades.filter(t => String(t && t.status) === 'success').length
+    const pct = total > 0 ? Math.round((success / total) * 100) : 0
+    return { success, total, pct }
   }
   
   async function uploadIgnoredTokens(list) {
@@ -590,10 +744,30 @@ export default function App() {
               </>
             ))}
           </div>
+          
+          <div className="timers" style={{display:'inline-flex',flexDirection:'column',alignItems:'flex-start',gap:6,marginLeft:12}}>
+            {(() => { const s = todayStats(); return (
+              <div style={{display:'grid',gridTemplateColumns:'48px 140px auto',alignItems:'center',gap:8}}>
+                <span className="small muted">Today</span>
+                <div className="progress-bar"><div className="progress-fill" style={{width:String(s.pct)+'%'}}></div></div>
+                <span className="muted">{String(s.success)}/{String(s.total)}</span>
+              </div>
+            ) })()}
+            {(() => { const t = totalStats(); return (
+              <div style={{display:'grid',gridTemplateColumns:'48px 140px auto',alignItems:'center',gap:8}}>
+                <span className="small muted">Total</span>
+                <div className="progress-bar"><div className="progress-fill" style={{width:String(t.pct)+'%'}}></div></div>
+                <span className="muted">{String(t.success)}/{String(t.total)}</span>
+              </div>
+            ) })()}
+          </div>
+          <button className={'seg-option '+(showCheckedOnly?'active':'')} onClick={()=>setShowCheckedOnly(v=>!v)} title="Show Checked Only">Checked</button>
+          <button className={'seg-option '+(showNewOnly?'active':'')} onClick={()=>setShowNewOnly(v=>!v)} title="Show New Only">New</button>
           <div className="toolbar-spacer" />
           <button className={'seg-option'} onClick={openRuleManager} title="Manage Rules"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h16M4 12h16M4 18h16" stroke="#e6e6e6" strokeWidth="2" fill="none" strokeLinecap="round"/></svg></button>
           <button className={'seg-option'} onClick={openMissionManager} title="Manage Missions"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6 4v16" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/><path d="M6 4h11l-4 3 4 3H6" fill="#e6e6e6"/></svg></button>
           <button className={'seg-option'} onClick={openIgnoredManager} title="Manage Ignored"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="#e6e6e6" strokeWidth="2" fill="none"/><path d="M5 5l14 14" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/></svg></button>
+          <button className={'seg-option'} onClick={openProgressManager} title="Manage Progress"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="6" width="4" height="12" fill="#e6e6e6"/><rect x="10" y="10" width="4" height="8" fill="#e6e6e6"/><rect x="16" y="13" width="4" height="5" fill="#e6e6e6"/></svg></button>
         </div>
       </header>
       {showRuleDlg && (
@@ -619,6 +793,49 @@ export default function App() {
           </div>
         </div>
       )}
+      {showProgressDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:520,maxWidth:700,width:'60%'}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Manage Daily Trading Progress</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:'60vh',overflow:'auto'}}>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input type="date" className="rule-input" value={dayInput} onChange={e=>setDayInput(e.target.value)} />
+                <button className="seg-option" onClick={()=>setDayInput(todayStr())}>Today</button>
+                <button className="seg-option active" onClick={()=>addDayToSelected(dayInput)}>Add Day</button>
+              </div>
+              {(draftProgress[0] && draftProgress[0].days ? draftProgress[0].days : []).map((d,di) => {
+                const pct = successRate(d && d.trades)
+                return (
+                  <div key={di} style={{border:'1px solid #2a3140',borderRadius:8,padding:10,background:'#141821'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                      <div>{String(d && d.date || '')}</div>
+                      <button className="seg-option" onClick={()=>deleteDay(di)}>Delete</button>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                      <div className="progress-bar"><div className="progress-fill" style={{width:String(pct)+'%'}}></div></div>
+                      <div className="small muted">{pct}%</div>
+                    </div>
+                    <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:8}}>
+                      {Array.isArray(d && d.trades) ? d.trades.map(t => (
+                        <span key={String(t && t.id)} className={'mission-chip '+(String(t && t.status)==='success'?'achieved':'not_achieved')} title={String(t && t.status)} onClick={()=>deleteTrade(di, String(t && t.id))}>{String(t && t.status)==='success'?'✓':'✗'}</span>
+                      )) : null}
+                    </div>
+                    <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                      <button className="seg-option" onClick={()=>addTrade(di, 'success')}>Add Success</button>
+                      <button className="seg-option" onClick={()=>addTrade(di, 'failed')}>Add Failed</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option" onClick={closeProgressManager}>Cancel</button>
+              <button className="seg-option active" onClick={saveProgressManager}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {showMissionDlg && (
         <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
           <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:380,maxWidth:700,width:'60%'}}>
@@ -689,7 +906,7 @@ export default function App() {
         </div>
       )}
       <div className="sections-grid">
-        {windows.map(it => <MetricsSection key={it.id} windowSec={it.sec} label={it.label} rows={(rowsByWindow[it.sec] || [])} nextRefreshTs={nextRefreshTs} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} ignoredSet={new Set(ignoredTokens)} onRequestIgnore={requestIgnoreToken} />)}
+        {windows.map(it => <MetricsSection key={it.id} windowSec={it.sec} label={it.label} rows={(rowsByWindow[it.sec] || [])} nextRefreshTs={nextRefreshTs} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} ignoredSet={new Set(ignoredTokens)} onRequestIgnore={requestIgnoreToken} checkedSet={checkedTokens} onToggleChecked={toggleCheckedSymbol} showCheckedOnly={showCheckedOnly} newBadgesSet={newBadges} onToggleNewBadge={toggleNewBadge} showNewOnly={showNewOnly} />)}
       </div>
     </div>
   )
