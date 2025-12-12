@@ -658,7 +658,7 @@ async function fetchJson(urlStr) {
 
 const metricsCache = new Map()
 const METRICS_CACHE_MS = 10000
-const ALLOWED_METRIC_WINDOWS = new Set([60, 120, 180, 300, 3600])
+const ALLOWED_METRIC_WINDOWS = new Set([60, 180, 300, 3600, 86400])
 
 let lastPayload = null
 async function pollAndBroadcast() {

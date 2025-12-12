@@ -3,10 +3,10 @@ import './index.css'
 
 const windows = [
   { id: 'w1m', label: '1m', sec: 60 },
-  { id: 'w2m', label: '2m', sec: 120 },
   { id: 'w3m', label: '3m', sec: 180 },
   { id: 'w5m', label: '5m', sec: 300 },
   { id: 'w1h', label: '1h', sec: 3600 },
+  { id: 'w1d', label: '1d', sec: 86400 },
 ]
 
 function spotToFutures(symbol) {
