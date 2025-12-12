@@ -78,6 +78,9 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 .section table thead th { position: sticky; top: 0; background: #141821; z-index: 2 }
 .col-no { width: 64px; text-align: center; }
 .col-pair { width: 160px }
+.pair-cell { display:flex; align-items:center; gap:6px }
+.pair-label { display:block; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.badge-new.badge-n { padding:0 4px }
 .cell { width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .rightScroller { overflow-x: auto }
 .right table { table-layout: fixed; min-width: 2000px }

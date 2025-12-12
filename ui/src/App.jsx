@@ -258,7 +258,12 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
             <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new ' : '') + (rankUpSet && rankUpSet.has(r.symbol) ? 'up' : '')} onMouseDown={(e)=>startPress(e,r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onContextMenu={(e)=>{ e.preventDefault() }} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
               <td className="num"><input type="checkbox" checked={Boolean(checkedSet && checkedSet.has(r.symbol))} onChange={()=>onToggleChecked(r.symbol)} onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} /></td>
               <td className="num col-no">{Number((rankCounts && rankCounts[r.symbol]) || 0)}</td>
-              <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>{r.symbol.replace('_','/')} {newBadgesSet && newBadgesSet.has(r.symbol) ? <span className="badge-new">N</span> : null}</td>
+              <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>
+                <div className="pair-cell">
+                  <span className="pair-label">{r.symbol.replace('_','/')}</span>
+                  {newBadgesSet && newBadgesSet.has(r.symbol) ? <span className="badge-new badge-n">N</span> : null}
+                </div>
+              </td>
               {(() => {
                 const cls = (Number(r.minTs) < Number(r.maxTs)) ? 'pos' : (Number(r.minTs) > Number(r.maxTs) ? 'neg' : 'muted')
                 const cur = Number(r.changePct || 0)
@@ -270,6 +275,13 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
               })()}
             </tr>
           ))}
+          {displayedRows.length === 0 ? (
+            <tr>
+              <td colSpan={4}>
+                <div className="small muted">No items match current filters</div>
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>
@@ -314,6 +326,7 @@ export default function App() {
   const [showRuleDlg, setShowRuleDlg] = useState(false)
   const [showMissionDlg, setShowMissionDlg] = useState(false)
   const [showIgnoredDlg, setShowIgnoredDlg] = useState(false)
+  const [showHelpDlg, setShowHelpDlg] = useState(false)
   const [draftRules, setDraftRules] = useState([])
   const [draftMissions, setDraftMissions] = useState([])
   const [draftIgnored, setDraftIgnored] = useState([])
@@ -417,6 +430,8 @@ export default function App() {
   function closeIgnoredManager() {
     setShowIgnoredDlg(false)
   }
+  function openHelpDlg() { setShowHelpDlg(true) }
+  function closeHelpDlg() { setShowHelpDlg(false) }
   function closeProgressManager() {
     setShowProgressDlg(false)
   }
@@ -764,6 +779,7 @@ export default function App() {
           <button className={'seg-option '+(showCheckedOnly?'active':'')} onClick={()=>setShowCheckedOnly(v=>!v)} title="Show Checked Only">Checked</button>
           <button className={'seg-option '+(showNewOnly?'active':'')} onClick={()=>setShowNewOnly(v=>!v)} title="Show New Only">New</button>
           <div className="toolbar-spacer" />
+          <button className={'seg-option'} onClick={openHelpDlg} title="Help"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="#e6e6e6" strokeWidth="2" fill="none"/><text x="12" y="16" textAnchor="middle" fontSize="12" fill="#e6e6e6">?</text></svg></button>
           <button className={'seg-option'} onClick={openRuleManager} title="Manage Rules"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h16M4 12h16M4 18h16" stroke="#e6e6e6" strokeWidth="2" fill="none" strokeLinecap="round"/></svg></button>
           <button className={'seg-option'} onClick={openMissionManager} title="Manage Missions"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6 4v16" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/><path d="M6 4h11l-4 3 4 3H6" fill="#e6e6e6"/></svg></button>
           <button className={'seg-option'} onClick={openIgnoredManager} title="Manage Ignored"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="#e6e6e6" strokeWidth="2" fill="none"/><path d="M5 5l14 14" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/></svg></button>
@@ -789,6 +805,25 @@ export default function App() {
             <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
               <button className="seg-option" onClick={closeRuleManager}>Cancel</button>
               <button className="seg-option active" onClick={saveRuleManager}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showHelpDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:520,maxWidth:800,width:'70%'}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Help</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:'60vh',overflow:'auto'}}>
+              <div className="small">Toolbar shows Today and Total status. Checked filters marked tokens. New filters tokens with N badge.</div>
+              <div className="small">Long-press left on a row to ignore a token. Long-press right to toggle N badge.</div>
+              <div className="small">Click a pair to copy. Ctrl+Click opens the futures page.</div>
+              <div className="small">Sort by Count or Change using the ▲/▼ buttons in the header.</div>
+              <div className="small">Enter notes per window in the Note field beside each section title.</div>
+              <div className="small">Manage Rules, Missions, Ignored tokens, and Daily Progress from the buttons on the right.</div>
+              <div className="small">In Progress manager, add days, add success/failed trades, and view daily percentages. Today/Total bars reflect saved data.</div>
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option active" onClick={closeHelpDlg}>Close</button>
             </div>
           </div>
         </div>
