@@ -388,7 +388,7 @@ const server = http.createServer(async (req, res) => {
         .map(s => Number(s.trim()))
         .filter(s => ALLOWED_METRIC_WINDOWS.has(s))
       const windowsList = requested.length > 0 ? requested : Array.from(ALLOWED_METRIC_WINDOWS)
-      const limit = Math.min(20, Math.max(1, Number(u.searchParams.get('limit') || '20')))
+      const limit = Math.min(50, Math.max(1, Number(u.searchParams.get('limit') || '50')))
       const out = {}
       const [latest] = await dbPool.query('SELECT p.symbol, p.price FROM prices p JOIN (SELECT symbol, MAX(ts) AS ts FROM prices GROUP BY symbol) x ON x.symbol = p.symbol AND x.ts = p.ts')
       const curMap = new Map(latest.map(r => [r.symbol, Number(r.price)]))

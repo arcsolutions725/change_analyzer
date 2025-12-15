@@ -137,4 +137,6 @@ th, td { padding:8px 10px; border-bottom: 1px solid #212633; line-height: 1.6; f
 .toast { background:#171b24; color:#e6e6e6; border:1px solid #2a3140; border-radius:8px; padding:8px 12px; box-shadow:none; font-size:14px }
 .progress-bar { flex:1 1 auto; height:10px; background:#1a1f2b; border:1px solid #2a3140; border-radius:999px; overflow:hidden }
 .progress-fill { height:100%; background:#17c964 }
-.badge-new { display:inline-flex; align-items:center; gap:6px; padding:0 6px; margin-left:8px; border-radius:999px; border:1px solid #2a3140; background:#1a1f2b; color:#78e7b0; font-size:12px }
+.badge-new { display:inline-flex; align-items:center; gap:6px; padding:0; margin-left:8px; border:0; background:transparent; color:#f5c04f; font-size:12px }
+.badge-new.badge-n { padding:0 }
+.badge-new svg { display:block; width:18px; height:18px }

@@ -68,7 +68,7 @@ function useBatchMetrics(token) {
     async function load() {
       try {
         const winList = windows.map(w => w.sec).join(',')
-        const res = await fetch(`/api/metrics/batch?windows=${winList}&limit=20`, { headers })
+        const res = await fetch(`/api/metrics/batch?windows=${winList}&limit=50`, { headers })
         if (res.status === 401) {
           try { localStorage.removeItem('authToken') } catch { void 0 }
           setRowsByWindow({})
@@ -159,11 +159,11 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
       const vb = metricVal(b)
       return sortDir === 'desc' ? (vb - va) : (va - vb)
     })
-    return sorted.slice(0,20)
+    return sorted.slice(0,50)
   })()
   useEffect(() => {
     try {
-      const topSymbols = rows.slice(0,20).map(r=>r.symbol)
+      const topSymbols = rows.slice(0,50).map(r=>r.symbol)
       const prevSet = prevTopRef.current || new Set()
       let changed = false
       if (prevSet.size !== topSymbols.length) changed = true
@@ -261,7 +261,21 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
               <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>
                 <div className="pair-cell">
                   <span className="pair-label">{r.symbol.replace('_','/')}</span>
-                  {newBadgesSet && newBadgesSet.has(r.symbol) ? <span className="badge-new badge-n">B</span> : null}
+                  {newBadgesSet && newBadgesSet.has(r.symbol) ? (
+                    <span className="badge-new badge-n" title="Buy">
+                      <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                          <linearGradient id="buyGrad" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor="#ff8f1f"/>
+                            <stop offset="50%" stopColor="#ffa733"/>
+                            <stop offset="100%" stopColor="#ffd34d"/>
+                          </linearGradient>
+                        </defs>
+                        <path d="M12 5a7 7 0 1 1-4.95 2.05" stroke="url(#buyGrad)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M8 7h3V4" stroke="url(#buyGrad)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </span>
+                  ) : null}
                 </div>
               </td>
               {(() => {
