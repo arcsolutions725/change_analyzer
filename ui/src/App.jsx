@@ -261,7 +261,7 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
               <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>
                 <div className="pair-cell">
                   <span className="pair-label">{r.symbol.replace('_','/')}</span>
-                  {newBadgesSet && newBadgesSet.has(r.symbol) ? <span className="badge-new badge-n">N</span> : null}
+                  {newBadgesSet && newBadgesSet.has(r.symbol) ? <span className="badge-new badge-n">B</span> : null}
                 </div>
               </td>
               {(() => {
@@ -777,7 +777,7 @@ export default function App() {
             ) })()}
           </div>
           <button className={'seg-option '+(showCheckedOnly?'active':'')} onClick={()=>setShowCheckedOnly(v=>!v)} title="Show Checked Only">Checked</button>
-          <button className={'seg-option '+(showNewOnly?'active':'')} onClick={()=>setShowNewOnly(v=>!v)} title="Show New Only">New</button>
+          <button className={'seg-option '+(showNewOnly?'active':'')} onClick={()=>setShowNewOnly(v=>!v)} title="Show Buy Only">Buy</button>
           <div className="toolbar-spacer" />
           <button className={'seg-option'} onClick={openRuleManager} title="Manage Rules"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h16M4 12h16M4 18h16" stroke="#e6e6e6" strokeWidth="2" fill="none" strokeLinecap="round"/></svg></button>
           <button className={'seg-option'} onClick={openMissionManager} title="Manage Missions"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6 4v16" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/><path d="M6 4h11l-4 3 4 3H6" fill="#e6e6e6"/></svg></button>
@@ -814,8 +814,8 @@ export default function App() {
           <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:520,maxWidth:800,width:'70%'}}>
             <div style={{fontWeight:600,marginBottom:8}}>Help</div>
             <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:'60vh',overflow:'auto'}}>
-              <div className="small">Toolbar shows Today and Total status. Checked filters marked tokens. New filters tokens with N badge.</div>
-              <div className="small">Long-press left on a row to ignore a token. Long-press right to toggle N badge.</div>
+              <div className="small">Toolbar shows Today and Total status. Checked filters marked tokens. Buy filter tokens with B badge.</div>
+              <div className="small">Long-press left on a row to ignore a token. Long-press right to toggle B badge.</div>
               <div className="small">Click a pair to copy. Ctrl+Click opens the futures page.</div>
               <div className="small">Sort by Count or Change using the ▲/▼ buttons in the header.</div>
               <div className="small">Enter notes per window in the Note field beside each section title.</div>
