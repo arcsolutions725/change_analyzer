@@ -388,7 +388,7 @@ const server = http.createServer(async (req, res) => {
         .map(s => Number(s.trim()))
         .filter(s => ALLOWED_METRIC_WINDOWS.has(s))
       const windowsList = requested.length > 0 ? requested : Array.from(ALLOWED_METRIC_WINDOWS)
-      const limit = Math.min(50, Math.max(1, Number(u.searchParams.get('limit') || '50')))
+      const limit = Math.min(100, Math.max(1, Number(u.searchParams.get('limit') || '50')))
       const out = {}
       const [latest] = await dbPool.query('SELECT p.symbol, p.price FROM prices p JOIN (SELECT symbol, MAX(ts) AS ts FROM prices GROUP BY symbol) x ON x.symbol = p.symbol AND x.ts = p.ts')
       const curMap = new Map(latest.map(r => [r.symbol, Number(r.price)]))
@@ -658,7 +658,7 @@ async function fetchJson(urlStr) {
 
 const metricsCache = new Map()
 const METRICS_CACHE_MS = 10000
-const ALLOWED_METRIC_WINDOWS = new Set([60, 180, 300, 3600, 86400])
+const ALLOWED_METRIC_WINDOWS = new Set([60, 180, 300, 3600, 86400, 259200])
 
 let lastPayload = null
 async function pollAndBroadcast() {
@@ -785,10 +785,10 @@ function refreshAllowedFutures() {
 refreshAllowedFutures()
 setInterval(refreshAllowedFutures, 10 * 60 * 1000)
 
-async function performTrim1d() {
+async function performDataTrim() {
   try {
     if (!dbPool) return
-    const cutoff = Date.now() - (1 * 24 * 60 * 60 * 1000)
+    const cutoff = Date.now() - (3 * 24 * 60 * 60 * 1000)
     await dbPool.query('DELETE FROM prices WHERE ts < ?', [cutoff])
     await dbPool.query('DELETE FROM agg_prices WHERE bucket_ts < ?', [cutoff])
   } catch {}
@@ -806,7 +806,7 @@ function scheduleDailyTrim() {
   function planNext() {
     const wait = nextDelayMs()
     setTimeout(async () => {
-      try { await performTrim1d() } catch {}
+      try { await performDataTrim() } catch {}
       planNext()
     }, wait)
   }
