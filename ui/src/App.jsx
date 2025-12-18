@@ -71,7 +71,7 @@ function useBatchMetrics(token) {
         if (res.status === 401) {
           try { localStorage.removeItem('authToken') } catch { void 0 }
           setRowsByWindow({})
-          setNextRefreshTs(Date.now() + 20000)
+          setNextRefreshTs(Date.now() + 60000)
           return
         }
         const obj = await res.json()
@@ -85,12 +85,12 @@ function useBatchMetrics(token) {
         } catch { void 0 }
         if (alive) setRowsByWindow(out)
       } catch { void 0 }
-      setNextRefreshTs(Date.now() + 20000)
+      setNextRefreshTs(Date.now() + 60000)
     }
     if (initialDelayRef.current == null) initialDelayRef.current = Math.floor(Math.random() * 500)
     setNextRefreshTs(Date.now() + initialDelayRef.current)
     setTimeout(async () => { await load() }, initialDelayRef.current)
-    timerRef.current = setInterval(() => { load() }, 20000)
+    timerRef.current = setInterval(() => { load() }, 60000)
     return () => { alive = false; if (timerRef.current) clearInterval(timerRef.current) }
   }, [token])
   return { rowsByWindow, nextRefreshTs }
@@ -247,16 +247,16 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
         <thead>
           <tr>
             <th className="nowrap"><div className="hdr"><span>#</span></div></th>
-            <th className="nowrap col-no"><div className="hdr"><span>Count</span><button className={'hdr-btn ' + (sortMode==='count' ? 'active' : '')} onClick={()=>toggleSort('count')}>{sortMode==='count' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
+            <th className="nowrap col-no"><div className="hdr"><span>No</span></div></th>
             <th className="nowrap col-pair">Pair</th>
             <th className="nowrap cell"><div className="hdr"><span>%</span><button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
           </tr>
         </thead>
         <tbody>
-          {displayedRows.map((r) => (
+          {displayedRows.map((r, i) => (
             <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new ' : '') + (rankUpSet && rankUpSet.has(r.symbol) ? 'up ' : '') + (checkedSet && checkedSet.has(r.symbol) ? 'checked ' : '')} onMouseDown={(e)=>startPress(e,r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onContextMenu={(e)=>{ e.preventDefault() }} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
               <td className="num"><input type="checkbox" checked={Boolean(checkedSet && checkedSet.has(r.symbol))} onChange={()=>onToggleChecked(r.symbol)} onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} /></td>
-              <td className="num col-no">{Number((rankCounts && rankCounts[r.symbol]) || 0)}</td>
+              <td className="num col-no">{i + 1}</td>
               <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>
                 <div className="pair-cell">
                   <span className="pair-label">{r.symbol.replace('_','/')}</span>
