@@ -4,6 +4,7 @@ import './index.css'
 const windows = [
   { id: 'w5m', label: '5m', sec: 300 },
   { id: 'w1h', label: '1h', sec: 3600 },
+  { id: 'w4h', label: '4h', sec: 14400 },
   { id: 'w1d', label: '1d', sec: 86400 },
   { id: 'w3d', label: '3d', sec: 259200 },
 ]
@@ -261,17 +262,17 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
                 <div className="pair-cell">
                   <span className="pair-label">{r.symbol.replace('_','/')}</span>
                   {newBadgesSet && newBadgesSet.has(r.symbol) ? (
-                    <span className="badge-new badge-n" title="Buy">
+                    <span className="badge-new badge-n" title="Following">
                       <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                         <defs>
-                          <linearGradient id="buyGrad" x1="0" y1="0" x2="1" y2="1">
+                          <linearGradient id="followingGrad" x1="0" y1="0" x2="1" y2="1">
                             <stop offset="0%" stopColor="#ff8f1f"/>
                             <stop offset="50%" stopColor="#ffa733"/>
                             <stop offset="100%" stopColor="#ffd34d"/>
                           </linearGradient>
                         </defs>
-                        <path d="M12 5a7 7 0 1 1-4.95 2.05" stroke="url(#buyGrad)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                        <path d="M8 7h3V4" stroke="url(#buyGrad)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M12 5a7 7 0 1 1-4.95 2.05" stroke="url(#followingGrad)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M8 7h3V4" stroke="url(#followingGrad)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     </span>
                   ) : null}
@@ -408,6 +409,11 @@ export default function App() {
       if (next.has(s)) next.delete(s); else next.add(s)
       return next
     })
+  }
+  function uncheckAll() {
+    if (confirm('Uncheck all checked items?')) {
+      setCheckedTokens(new Set())
+    }
   }
   useEffect(() => {
     try { localStorage.setItem('progressItems', JSON.stringify(progressItems)) } catch { void 0 }
@@ -790,7 +796,8 @@ export default function App() {
             ) })()}
           </div>
           <button className={'seg-option '+(showCheckedOnly?'active':'')} onClick={()=>setShowCheckedOnly(v=>!v)} title="Show Checked Only">Checked</button>
-          <button className={'seg-option '+(showNewOnly?'active':'')} onClick={()=>setShowNewOnly(v=>!v)} title="Show Buy Only">Buy</button>
+          <button className={'seg-option '+(showNewOnly?'active':'')} onClick={()=>setShowNewOnly(v=>!v)} title="Show Following Only">Following</button>
+          <button className={'seg-option'} onClick={uncheckAll} title="Uncheck all">Uncheck All</button>
           <div className="toolbar-spacer" />
           <button className={'seg-option'} onClick={openRuleManager} title="Manage Rules"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h16M4 12h16M4 18h16" stroke="#e6e6e6" strokeWidth="2" fill="none" strokeLinecap="round"/></svg></button>
           <button className={'seg-option'} onClick={openMissionManager} title="Manage Missions"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6 4v16" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/><path d="M6 4h11l-4 3 4 3H6" fill="#e6e6e6"/></svg></button>
@@ -827,7 +834,7 @@ export default function App() {
           <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:520,maxWidth:800,width:'70%'}}>
             <div style={{fontWeight:600,marginBottom:8}}>Help</div>
             <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:'60vh',overflow:'auto'}}>
-              <div className="small">Toolbar shows Today and Total status. Checked filters marked tokens. Buy filter tokens with B badge.</div>
+              <div className="small">Toolbar shows Today and Total status. Checked filters marked tokens. Following filter tokens with a badge.</div>
               <div className="small">Long-press left on a row to ignore a token. Long-press right to toggle B badge.</div>
               <div className="small">Click a pair to copy. Ctrl+Click opens the futures page.</div>
               <div className="small">Sort by Count or Change using the ▲/▼ buttons in the header.</div>
