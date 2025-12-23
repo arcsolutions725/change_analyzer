@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import './index.css'
 
 const windows = [
@@ -312,7 +312,7 @@ export default function App() {
     try {
       const t = localStorage.getItem('missions')
       const arr = t ? JSON.parse(t) : []
-      return Array.isArray(arr) ? arr.map(x => (typeof x === 'string' ? { text: x, status: 'current' } : { text: String(x && x.text || ''), status: ['achieved','current','not_achieved'].includes(String(x && x.status)) ? String(x.status) : 'current' })) : []
+      return Array.isArray(arr) ? arr.map(x => ({ unit: String(x.unit||''), total: String(x.total||''), earned: String(x.earned||''), status: ['achieved','current','not_achieved'].includes(String(x && x.status)) ? String(x.status) : 'current' })) : []
     } catch { return [] }
   })
   const [ignoredTokens, setIgnoredTokens] = useState(() => {
@@ -345,7 +345,9 @@ export default function App() {
   const [draftMissions, setDraftMissions] = useState([])
   const [draftIgnored, setDraftIgnored] = useState([])
   const [newRuleText, setNewRuleText] = useState('')
-  const [newMissionText, setNewMissionText] = useState('')
+  const [newMissionUnit, setNewMissionUnit] = useState('')
+  const [newMissionTotal, setNewMissionTotal] = useState('')
+  const [newMissionEarned, setNewMissionEarned] = useState('')
   const [newIgnoredText, setNewIgnoredText] = useState('')
   const [showConfirmIgnoreDlg, setShowConfirmIgnoreDlg] = useState(false)
   const [confirmIgnoreSymbol, setConfirmIgnoreSymbol] = useState(null)
@@ -424,8 +426,10 @@ export default function App() {
     setShowRuleDlg(true)
   }
   function openMissionManager() {
-    setDraftMissions(Array.isArray(missions) ? missions.map(m => ({ text: String(m && m.text || ''), status: String(m && m.status || 'current') })) : [])
-    setNewMissionText('')
+    setDraftMissions(Array.isArray(missions) ? missions.map(m => ({ unit: String(m.unit||''), total: String(m.total||''), earned: String(m.earned||''), status: String(m.status||'current') })) : [])
+    setNewMissionUnit('')
+    setNewMissionTotal('')
+    setNewMissionEarned('')
     setShowMissionDlg(true)
   }
   function openIgnoredManager() {
@@ -475,8 +479,8 @@ export default function App() {
   function updateDraftRule(i, text) {
     setDraftRules(prev => prev.map((r, idx) => idx === i ? text : r))
   }
-  function updateDraftMission(i, text) {
-    setDraftMissions(prev => prev.map((r, idx) => idx === i ? { ...r, text } : r))
+  function updateDraftMission(i, field, val) {
+    setDraftMissions(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: val } : r))
   }
   function setDraftMissionStatus(i, status) {
     const st = ['achieved','current','not_achieved'].includes(String(status)) ? String(status) : 'current'
@@ -526,10 +530,14 @@ export default function App() {
     setNewRuleText('')
   }
   function addDraftMission() {
-    const t = String(newMissionText || '').trim()
-    if (!t) return
-    setDraftMissions(prev => [...prev, { text: t, status: 'current' }])
-    setNewMissionText('')
+    const u = String(newMissionUnit || '').trim()
+    const t = String(newMissionTotal || '').trim()
+    const e = String(newMissionEarned || '').trim()
+    if (!u && !t && !e) return
+    setDraftMissions(prev => [...prev, { unit: u, total: t, earned: e, status: 'current' }])
+    setNewMissionUnit('')
+    setNewMissionTotal('')
+    setNewMissionEarned('')
   }
   async function addDraftIgnored() {
     const t = String(newIgnoredText || '').trim()
@@ -772,10 +780,10 @@ export default function App() {
           </div>
           <div className="mission-bar">
             {missions.map((m,i) => (
-              <>
-                <span key={i} className={'mission-chip ' + String(m && m.status || 'current')}><span className="icon">{String(m && m.status)==='achieved' ? '✓' : (String(m && m.status)==='current' ? '•' : '✗')}</span><span className="text nowrap">{String(m && m.text || '')}</span></span>
+              <React.Fragment key={i}>
+                <span className={'mission-chip ' + String(m && m.status || 'current')}><span className="icon">{String(m && m.status)==='achieved' ? '✓' : (String(m && m.status)==='current' ? '•' : '✗')}</span><span className="text nowrap">M{i+1} - {(() => { const e = parseFloat(m.earned||0); const t = parseFloat(m.total||0); const p = t===0 ? 0 : (e/t)*100; return parseFloat(p.toFixed(2)) + '%' })()}</span></span>
                 {i < missions.length - 1 ? <span className="rule-sep" /> : null}
-              </>
+              </React.Fragment>
             ))}
           </div>
           
@@ -898,7 +906,10 @@ export default function App() {
             <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'50vh',overflow:'auto'}}>
               {draftMissions.map((r,i) => (
                 <div key={i} style={{display:'flex',gap:8,alignItems:'center'}}>
-                  <input className="rule-input" value={String(r && r.text || '')} onChange={e=>updateDraftMission(i, e.target.value)} placeholder="Mission" />
+                  <span style={{minWidth:30,textAlign:'right'}}>M{i+1}</span>
+                  <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} value={String(r && r.unit || '')} onChange={e=>updateDraftMission(i, 'unit', e.target.value)} placeholder="Unit" />
+                  <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} value={String(r && r.total || '')} onChange={e=>updateDraftMission(i, 'total', e.target.value)} placeholder="Total" />
+                  <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} value={String(r && r.earned || '')} onChange={e=>updateDraftMission(i, 'earned', e.target.value)} placeholder="Earned" />
                   <div className="mission-status">
                     <button className={'mission-btn achieved '+ (String(r && r.status)==='achieved' ? 'active' : '')} onClick={()=>setDraftMissionStatus(i,'achieved')}>Achieved</button>
                     <button className={'mission-btn current '+ (String(r && r.status)==='current' ? 'active' : '')} onClick={()=>setDraftMissionStatus(i,'current')}>Current</button>
@@ -908,7 +919,10 @@ export default function App() {
                 </div>
               ))}
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                <input className="rule-input" placeholder="New mission" value={newMissionText} onChange={e=>setNewMissionText(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter') addDraftMission() }} />
+                <span style={{minWidth:30,textAlign:'right'}}>New</span>
+                <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} placeholder="Unit" value={newMissionUnit} onChange={e=>setNewMissionUnit(e.target.value)} />
+                <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} placeholder="Total" value={newMissionTotal} onChange={e=>setNewMissionTotal(e.target.value)} />
+                <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} placeholder="Earned" value={newMissionEarned} onChange={e=>setNewMissionEarned(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter') addDraftMission() }} />
                 <button className="seg-option" onClick={addDraftMission}>Add</button>
               </div>
             </div>
