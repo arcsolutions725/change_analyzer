@@ -68,7 +68,7 @@ function useBatchMetrics(token) {
     async function load() {
       try {
         const winList = windows.map(w => w.sec).join(',')
-        const res = await fetch(`/api/metrics/batch?windows=${winList}&limit=50`, { headers })
+        const res = await fetch(`/api/metrics/batch?windows=${winList}&limit=100`, { headers })
         if (res.status === 401) {
           try { localStorage.removeItem('authToken') } catch { void 0 }
           setRowsByWindow({})
@@ -159,11 +159,11 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
       const vb = metricVal(b)
       return sortDir === 'desc' ? (vb - va) : (va - vb)
     })
-    return sorted.slice(0,50)
+    return sorted.slice(0,100)
   })()
   useEffect(() => {
     try {
-      const topSymbols = rows.slice(0,50).map(r=>r.symbol)
+      const topSymbols = rows.slice(0,100).map(r=>r.symbol)
       const prevSet = prevTopRef.current || new Set()
       let changed = false
       if (prevSet.size !== topSymbols.length) changed = true
