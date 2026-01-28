@@ -3,7 +3,6 @@ import './index.css'
 
 const windows = [
   { id: 'w5m', label: '5m', sec: 300 },
-  { id: 'w30m', label: '30m', sec: 1800 },
   { id: 'w1h', label: '1h', sec: 3600 },
   { id: 'w4h', label: '4h', sec: 14400 },
   { id: 'w1d', label: '1d', sec: 86400 },
