@@ -33,14 +33,114 @@ const MYSQL_USER = process.env.MYSQL_USER || ''
 const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || ''
 const MYSQL_DB = process.env.MYSQL_DB || ''
 let dbPool = null
+const ignoredFile = path.join(runtimeDir, 'ignored_tokens.json')
+let ignoredTokensStore = []
+let ignoredTokensSet = new Set()
+try {
+  const t = fs.readFileSync(ignoredFile, 'utf8')
+  const arr = JSON.parse(t)
+  ignoredTokensStore = Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : []
+} catch {}
+function updateIgnoredMemory(list) {
+  const uniq = Array.from(new Set((Array.isArray(list) ? list : []).filter(x => typeof x === 'string')))
+  ignoredTokensStore = uniq
+  ignoredTokensSet = new Set(uniq)
+}
+async function refreshIgnoredFromDb() {
+  try {
+    if (!dbPool) return false
+    const [rows] = await dbPool.query('SELECT symbol FROM ignored_tokens')
+    const arr = rows.map(r => String(r.symbol)).filter(Boolean)
+    updateIgnoredMemory(arr)
+    return true
+  } catch { return false }
+}
+async function saveIgnoredTokens(list) {
+  const uniq = Array.from(new Set((Array.isArray(list) ? list : []).filter(x => typeof x === 'string')))
+  try {
+    if (dbPool) {
+      await dbPool.query('DELETE FROM ignored_tokens')
+      if (uniq.length > 0) {
+        const values = uniq.map(s => [s])
+        const placeholders = values.map(() => '(?)').join(',')
+        await dbPool.query('INSERT INTO ignored_tokens (symbol) VALUES ' + placeholders, values.flat())
+      }
+      updateIgnoredMemory(uniq)
+      return true
+    }
+  } catch {}
+  try {
+    fs.writeFileSync(ignoredFile, JSON.stringify(uniq))
+    updateIgnoredMemory(uniq)
+    return true
+  } catch { return false }
+}
+async function addIgnoredTokenDb(symbol) {
+  try {
+    const s = String(symbol || '').trim()
+    if (!s) return false
+    if (dbPool) {
+      await dbPool.query('INSERT IGNORE INTO ignored_tokens (symbol) VALUES (?)', [s])
+      await refreshIgnoredFromDb()
+      return true
+    }
+  } catch {}
+  try {
+    updateIgnoredMemory([...(ignoredTokensStore || []), String(symbol)])
+    fs.writeFileSync(ignoredFile, JSON.stringify(ignoredTokensStore))
+    return true
+  } catch { return false }
+}
+async function removeIgnoredTokenDb(symbol) {
+  try {
+    const s = String(symbol || '').trim()
+    if (!s) return false
+    if (dbPool) {
+      await dbPool.query('DELETE FROM ignored_tokens WHERE symbol = ?', [s])
+      await refreshIgnoredFromDb()
+      return true
+    }
+  } catch {}
+  try {
+    updateIgnoredMemory((ignoredTokensStore || []).filter(x => String(x) !== s))
+    fs.writeFileSync(ignoredFile, JSON.stringify(ignoredTokensStore))
+    return true
+  } catch { return false }
+}
+async function renameIgnoredTokenDb(oldSym, nextSym) {
+  try {
+    const a = String(oldSym || '').trim()
+    const b = String(nextSym || '').trim()
+    if (!a || !b) return false
+    if (dbPool) {
+      await dbPool.query('DELETE FROM ignored_tokens WHERE symbol = ?', [a])
+      await dbPool.query('INSERT IGNORE INTO ignored_tokens (symbol) VALUES (?)', [b])
+      await refreshIgnoredFromDb()
+      return true
+    }
+  } catch {}
+  try {
+    const next = (ignoredTokensStore || []).map(x => (String(x) === a ? b : x))
+    updateIgnoredMemory(next)
+    fs.writeFileSync(ignoredFile, JSON.stringify(ignoredTokensStore))
+    return true
+  } catch { return false }
+}
 async function initDb() {
   if (!MYSQL_HOST || !MYSQL_USER || !MYSQL_DB) return
   dbPool = mysql.createPool({ host: MYSQL_HOST, port: MYSQL_PORT, user: MYSQL_USER, password: MYSQL_PASSWORD, database: MYSQL_DB, waitForConnections: true, connectionLimit: 5 })
   try {
+    await dbPool.query('SELECT 1')
     await dbPool.query('CREATE TABLE IF NOT EXISTS prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, ts BIGINT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_ts (symbol, ts))')
     await dbPool.query('CREATE TABLE IF NOT EXISTS agg_prices (id BIGINT AUTO_INCREMENT PRIMARY KEY, symbol VARCHAR(64) NOT NULL, bucket_ts BIGINT NOT NULL, interval_sec INT NOT NULL, price DOUBLE NOT NULL, UNIQUE KEY uniq_symbol_bucket_interval (symbol, bucket_ts, interval_sec))')
+    await dbPool.query('CREATE TABLE IF NOT EXISTS ignored_tokens (symbol VARCHAR(64) PRIMARY KEY)')
     try { await dbPool.query('ALTER TABLE prices ADD UNIQUE KEY uniq_symbol_ts (symbol, ts)') } catch {}
-  } catch {}
+    try { await dbPool.query('CREATE INDEX idx_symbol_price_ts ON prices (symbol, price, ts)') } catch {}
+    console.log('DB initialized')
+    try { await refreshIgnoredFromDb() } catch {}
+  } catch (e) {
+    try { console.error('DB init error', e && e.message ? e.message : String(e)) } catch {}
+  }
 }
 initDb()
 let writeBuf = []
@@ -278,6 +378,62 @@ const server = http.createServer(async (req, res) => {
     }
     return
   }
+  if (reqPath.startsWith('/api/metrics/batch')) {
+    if (!ensureAuth(req, res)) return
+    try {
+      const u = new URL('http://x' + req.url)
+      const windowsParam = String(u.searchParams.get('windows') || '')
+      const requested = windowsParam
+        .split(',')
+        .map(s => Number(s.trim()))
+        .filter(s => ALLOWED_METRIC_WINDOWS.has(s))
+      const windowsList = requested.length > 0 ? requested : Array.from(ALLOWED_METRIC_WINDOWS)
+      const limit = Math.min(100, Math.max(1, Number(u.searchParams.get('limit') || '50')))
+      const out = {}
+      const [latest] = await dbPool.query('SELECT p.symbol, p.price FROM prices p JOIN (SELECT symbol, MAX(ts) AS ts FROM prices GROUP BY symbol) x ON x.symbol = p.symbol AND x.ts = p.ts')
+      const curMap = new Map(latest.map(r => [r.symbol, Number(r.price)]))
+      for (const windowSec of windowsList) {
+        const cutoff = Date.now() - (windowSec * 1000)
+        const [mm] = await dbPool.query(`
+          WITH windowed AS (
+            SELECT symbol, price, ts,
+                   ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY price ASC, ts ASC) AS rn_min,
+                   ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY price DESC, ts ASC) AS rn_max
+            FROM prices
+            WHERE ts >= ?
+          )
+          SELECT symbol,
+                 MIN(price) AS minp,
+                 MAX(price) AS maxp,
+                 MAX(CASE WHEN rn_min = 1 THEN ts END) AS min_ts,
+                 MAX(CASE WHEN rn_max = 1 THEN ts END) AS max_ts
+          FROM windowed
+          GROUP BY symbol
+        `, [cutoff])
+        const items = []
+        for (const r of mm) {
+          const sym = r.symbol
+          if (!isUsdtSymbol(sym) || !allowedFutures.has(sym) || ignoredTokensSet.has(sym)) continue
+          const minp = Number(r.minp)
+          const maxp = Number(r.maxp)
+          if (!minp || !maxp || minp <= 0) continue
+          const minTs = r.min_ts != null ? Number(r.min_ts) : null
+          const maxTs = r.max_ts != null ? Number(r.max_ts) : null
+          const changePct = (maxp / minp) * 100
+          const current = curMap.has(sym) ? curMap.get(sym) : null
+          items.push({ symbol: sym, changePct, minTs, maxTs, current })
+        }
+        items.sort((a,b) => Number(b.changePct || 0) - Number(a.changePct || 0))
+        out[String(windowSec)] = items.slice(0, limit).map(x => ({ symbol: x.symbol, changePct: x.changePct, minTs: x.minTs, maxTs: x.maxTs, current: x.current }))
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify(out))
+    } catch (e) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify({}))
+    }
+    return
+  }
   if (reqPath.startsWith('/api/agg/symbol')) {
     if (!ensureAuth(req, res)) return
     try {
@@ -292,6 +448,151 @@ const server = http.createServer(async (req, res) => {
     } catch {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
       res.end('[]')
+    }
+    return
+  }
+  if (reqPath === '/api/ignored-tokens') {
+    if (!ensureAuth(req, res)) return
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify({ tokens: ignoredTokensStore }))
+      return
+    }
+    if (req.method === 'POST') {
+      const chunks = []
+      req.on('data', c => chunks.push(c))
+      req.on('end', async () => {
+        try {
+          const body = Buffer.concat(chunks).toString('utf8')
+          const parsed = JSON.parse(body || '{}')
+          const list = parsed && parsed.tokens
+          if (!Array.isArray(list)) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'tokens array required' })); return }
+          const ok = await saveIgnoredTokens(list)
+          if (ok) {
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+            res.end(JSON.stringify({ ok: true }))
+          } else {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'save failed' }))
+          }
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Bad Request' }))
+        }
+      })
+      return
+    }
+    res.writeHead(405, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Method Not Allowed' }))
+    return
+  }
+  if (reqPath === '/api/ignored-tokens/add') {
+    if (!ensureAuth(req, res)) return
+    if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method Not Allowed' })); return }
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', async () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf8')
+        const parsed = JSON.parse(body || '{}')
+        const symbol = parsed && parsed.symbol
+        const ok = await addIgnoredTokenDb(symbol)
+        if (ok) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ ok: true })) }
+        else { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'save failed' })) }
+      } catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Bad Request' })) }
+    })
+    return
+  }
+  if (reqPath === '/api/ignored-tokens/remove') {
+    if (!ensureAuth(req, res)) return
+    if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method Not Allowed' })); return }
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', async () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf8')
+        const parsed = JSON.parse(body || '{}')
+        const symbol = parsed && parsed.symbol
+        const ok = await removeIgnoredTokenDb(symbol)
+        if (ok) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ ok: true })) }
+        else { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'delete failed' })) }
+      } catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Bad Request' })) }
+    })
+    return
+  }
+  if (reqPath === '/api/ignored-tokens/rename') {
+    if (!ensureAuth(req, res)) return
+    if (req.method !== 'POST') { res.writeHead(405, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Method Not Allowed' })); return }
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', async () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf8')
+        const parsed = JSON.parse(body || '{}')
+        const oldSym = parsed && parsed.old
+        const nextSym = parsed && parsed.next
+        const ok = await renameIgnoredTokenDb(oldSym, nextSym)
+        if (ok) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ ok: true })) }
+        else { res.writeHead(500, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'rename failed' })) }
+      } catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Bad Request' })) }
+    })
+    return
+  }
+  if (reqPath.startsWith('/api/metrics')) {
+    if (!ensureAuth(req, res)) return
+    try {
+      const u = new URL('http://x' + req.url)
+      let windowSec = Number(u.searchParams.get('window') || '60')
+      if (!ALLOWED_METRIC_WINDOWS.has(windowSec)) windowSec = 60
+      const limit = Math.min(20, Math.max(1, Number(u.searchParams.get('limit') || '20')))
+      if (!dbPool || windowSec <= 0) { res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify([])); return }
+      const cacheKey = `${windowSec}:${limit}`
+      const cached = metricsCache.get(cacheKey)
+      if (cached && (Date.now() - cached.ts) < METRICS_CACHE_MS) {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+        res.end(JSON.stringify(cached.data))
+        return
+      }
+      const cutoff = Date.now() - (windowSec * 1000)
+      const [latest] = await dbPool.query('SELECT p.symbol, p.price FROM prices p JOIN (SELECT symbol, MAX(ts) AS ts FROM prices GROUP BY symbol) x ON x.symbol = p.symbol AND x.ts = p.ts')
+      const curMap = new Map(latest.map(r => [r.symbol, Number(r.price)]))
+      const [mm] = await dbPool.query(`
+        WITH windowed AS (
+          SELECT symbol, price, ts,
+                 ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY price ASC, ts ASC) AS rn_min,
+                 ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY price DESC, ts ASC) AS rn_max
+          FROM prices
+          WHERE ts >= ?
+        )
+        SELECT symbol,
+               MIN(price) AS minp,
+               MAX(price) AS maxp,
+               MAX(CASE WHEN rn_min = 1 THEN ts END) AS min_ts,
+               MAX(CASE WHEN rn_max = 1 THEN ts END) AS max_ts
+        FROM windowed
+        GROUP BY symbol
+      `, [cutoff])
+      const items = []
+      for (const r of mm) {
+        const sym = r.symbol
+        if (!isUsdtSymbol(sym) || !allowedFutures.has(sym) || ignoredTokensSet.has(sym)) continue
+        const minp = Number(r.minp)
+        const maxp = Number(r.maxp)
+        if (!minp || !maxp || minp <= 0) continue
+        const minTs = r.min_ts != null ? Number(r.min_ts) : null
+        const maxTs = r.max_ts != null ? Number(r.max_ts) : null
+        const changePct = (maxp / minp) * 100
+        const current = curMap.has(sym) ? curMap.get(sym) : null
+        items.push({ symbol: sym, changePct, minTs, maxTs, current })
+      }
+      items.sort((a,b) => Number(b.changePct || 0) - Number(a.changePct || 0))
+      const out = items.slice(0, limit).map(x => ({ symbol: x.symbol, changePct: x.changePct, minTs: x.minTs, maxTs: x.maxTs, current: x.current }))
+      metricsCache.set(cacheKey, { ts: Date.now(), data: out })
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify(out))
+    } catch (e) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+      res.end(JSON.stringify([]))
     }
     return
   }
@@ -355,6 +656,10 @@ async function fetchJson(urlStr) {
   })
 }
 
+const metricsCache = new Map()
+const METRICS_CACHE_MS = 10000
+const ALLOWED_METRIC_WINDOWS = new Set([60, 180, 300, 1800, 3600, 14400, 86400, 259200])
+
 let lastPayload = null
 async function pollAndBroadcast() {
   try {
@@ -371,9 +676,9 @@ async function pollAndBroadcast() {
           const symbol = it.symbol
           const price = it.lastPrice
           const fut = spotToFutures(symbol)
-          if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut)) {
+          if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut) && !ignoredTokensSet.has(fut)) {
             queueWrite(fut, nowTs, Number(price))
-            updateAggregators(symbol, Number(price), nowTs)
+            updateAggregators(fut, Number(price), nowTs)
           }
         } catch {}
       }
@@ -421,8 +726,8 @@ function connectMiniTickers() {
             const symbol = it.symbol || (it.s || '')
             const price = (it.price ?? it.p ?? it.lastPrice ?? null)
             const fut = spotToFutures(symbol)
-            if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut)) queueWrite(fut, nowTs, Number(price))
-            if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut)) updateAggregators(symbol, Number(price), nowTs)
+            if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut) && !ignoredTokensSet.has(fut)) queueWrite(fut, nowTs, Number(price))
+            if (symbol && typeof price !== 'undefined' && isUsdtSymbol(symbol) && allowedFutures.has(fut) && !ignoredTokensSet.has(fut)) updateAggregators(fut, Number(price), nowTs)
           } catch {}
         }
         // broadcast closed buckets
@@ -479,3 +784,33 @@ function refreshAllowedFutures() {
 }
 refreshAllowedFutures()
 setInterval(refreshAllowedFutures, 10 * 60 * 1000)
+
+async function performDataTrim() {
+  try {
+    if (!dbPool) return
+    const cutoff = Date.now() - (3 * 24 * 60 * 60 * 1000)
+    await dbPool.query('DELETE FROM prices WHERE ts < ?', [cutoff])
+    await dbPool.query('DELETE FROM agg_prices WHERE bucket_ts < ?', [cutoff])
+  } catch {}
+}
+
+function scheduleDailyTrim() {
+  const targetHour = 3
+  const targetMinute = 10
+  function nextDelayMs() {
+    const now = new Date()
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetHour, targetMinute, 0, 0)
+    if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1)
+    return next.getTime() - now.getTime()
+  }
+  function planNext() {
+    const wait = nextDelayMs()
+    setTimeout(async () => {
+      try { await performDataTrim() } catch {}
+      planNext()
+    }, wait)
+  }
+  planNext()
+}
+
+scheduleDailyTrim()

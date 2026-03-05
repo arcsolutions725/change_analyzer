@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import './index.css'
 
-const intervals = [
-  { id: 2, label: '1m', sec: 60 },
-  { id: 5, label: '10m', sec: 600 },
-  { id: 6, label: '30m', sec: 1800 },
-  { id: 7, label: '60m', sec: 3600 },
+const windows = [
+  { id: 'w1h', label: '1h', sec: 3600 },
+  { id: 'w4h', label: '4h', sec: 14400 },
+  { id: 'w1d', label: '1d', sec: 86400 },
+  { id: 'w3d', label: '3d', sec: 259200 },
 ]
 
 function spotToFutures(symbol) {
@@ -17,226 +17,723 @@ function spotToFutures(symbol) {
 function pairUrl(symbol) {
   return 'https://www.mexc.com/en-GB/futures/' + spotToFutures(symbol) + '?type=linear_swap'
 }
+function copyText(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(String(text))
+      return
+    }
+  } catch { void 0 }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = String(text)
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus(); ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+  } catch { void 0 }
+}
+function copyTokenCompact(symbol) {
+  copyText(String(symbol).replace('_',''))
+}
 function onPairClick(e, symbol) {
-  const url = pairUrl(symbol)
-  try { navigator.clipboard && navigator.clipboard.writeText(url) } catch {}
-  if (e.ctrlKey) { try { window.open(url, '_blank') } catch {} }
+  e.stopPropagation()
+  copyTokenCompact(symbol)
+  if (e.ctrlKey) { try { window.open(pairUrl(symbol), '_blank') } catch { void 0 } }
 }
 function onRowClick(e, symbol) {
+  if (e.ctrlKey) { try { window.open(pairUrl(symbol), '_blank') } catch { void 0 }; return }
+  if ((e.detail || 1) >= 2) return
+  copyTokenCompact(symbol)
+}
+
+function onRowDblClick(e, symbol) {
   const url = pairUrl(symbol)
-  try { navigator.clipboard && navigator.clipboard.writeText(url) } catch {}
-  if (e.ctrlKey) { try { window.open(url, '_blank') } catch {} }
+  try { window.open(url, '_blank') } catch { void 0 }
 }
 
-function upCount(ph) {
-  if (!ph || ph.length < 2) return 0
-  let cnt = 0, steps = 0
-  for (let i = ph.length - 1; i > 0 && steps < 20; i--, steps++) {
-    const cur = Number(ph[i].p)
-    const prev = Number(ph[i-1].p)
-    if (Number.isNaN(cur) || Number.isNaN(prev)) continue
-    if (cur > prev) cnt++
-  }
-  return cnt
-}
-function downCount(ph) {
-  if (!ph || ph.length < 2) return 0
-  let cnt = 0, steps = 0
-  for (let i = ph.length - 1; i > 0 && steps < 20; i--, steps++) {
-    const cur = Number(ph[i].p)
-    const prev = Number(ph[i-1].p)
-    if (Number.isNaN(cur) || Number.isNaN(prev)) continue
-    if (cur < prev) cnt++
-  }
-  return cnt
-}
-function upStreak(ph) {
-  if (!ph || ph.length < 2) return 0
-  let cnt = 0
-  for (let i = ph.length - 1; i > 0 && cnt < 20; i--) {
-    const cur = Number(ph[i].p)
-    const prev = Number(ph[i-1].p)
-    if (Number.isNaN(cur) || Number.isNaN(prev)) break
-    if (cur > prev) cnt++
-    else break
-  }
-  return cnt
-}
-function downStreak(ph) {
-  if (!ph || ph.length < 2) return 0
-  let cnt = 0
-  for (let i = ph.length - 1; i > 0 && cnt < 20; i--) {
-    const cur = Number(ph[i].p)
-    const prev = Number(ph[i-1].p)
-    if (Number.isNaN(cur) || Number.isNaN(prev)) break
-    if (cur < prev) cnt++
-    else break
-  }
-  return cnt
-}
-
-function useAgg(intervalSec, token, onRefresh) {
-  const [rows, setRows] = useState([])
+function useBatchMetrics(token) {
+  const [rowsByWindow, setRowsByWindow] = useState({})
+  const [nextRefreshTs, setNextRefreshTs] = useState(null)
   const timerRef = useRef(null)
+  const initialDelayRef = useRef(null)
   const authTokenRef = useRef(token || null)
-
   useEffect(() => {
     authTokenRef.current = token || null
     const headers = authTokenRef.current ? { Authorization: 'Bearer ' + authTokenRef.current } : {}
-
     let alive = true
     async function load() {
       try {
-        const res = await fetch(`/api/agg/latest?intervalSec=${intervalSec}&limit=20`, { headers })
-        const arr = await res.json()
-        const map = new Map()
-        for (const r of arr) {
-          const list = map.get(r.symbol) || []
-          list.push({ p: Number(r.p), ts: Number(r.ts) })
-          map.set(r.symbol, list)
+        const winList = windows.map(w => w.sec).join(',')
+        const res = await fetch(`/api/metrics/batch?windows=${winList}&limit=100`, { headers })
+        if (res.status === 401) {
+          try { localStorage.removeItem('authToken') } catch { void 0 }
+          setRowsByWindow({})
+          setNextRefreshTs(Date.now() + 60000)
+          return
         }
-        const out = []
-        for (const [symbol, hist] of map.entries()) {
-          hist.sort((a,b) => a.ts - b.ts)
-          out.push({ symbol, history: hist })
-        }
-        if (alive) { setRows(out); try { onRefresh && onRefresh(intervalSec, Date.now()) } catch {} }
-      } catch {}
-    }
-    load()
-    timerRef.current = setInterval(load, intervalSec * 1000)
-    return () => { alive = false; if (timerRef.current) clearInterval(timerRef.current) }
-  }, [intervalSec, token])
-
-  useEffect(() => {
-    let ws
-    try {
-      const tok = authTokenRef.current
-      const sockUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream` + (tok ? ('?auth=' + encodeURIComponent(tok)) : '')
-      ws = new WebSocket(sockUrl)
-      ws.onmessage = (ev) => {
+        const obj = await res.json()
+        const out = {}
         try {
-          const msg = JSON.parse(ev.data)
-          if (msg.type === 'agg') {
-            const items = Array.isArray(msg.data) ? msg.data : []
-            const ours = items.filter(it => Number(it.intervalSec) === intervalSec)
-            if (!ours.length) return
-            setRows(prev => {
-              const map = new Map(prev.map(r => [r.symbol, r.history.slice()]))
-              for (const it of ours) {
-                const hist = map.get(it.symbol) || []
-                hist.push({ p: Number(it.p), ts: Number(it.ts) })
-                if (hist.length > 20) hist.shift()
-                map.set(it.symbol, hist)
-              }
-              return Array.from(map.entries()).map(([symbol, history]) => ({ symbol, history }))
-            })
-            try { onRefresh && onRefresh(intervalSec, Date.now()) } catch {}
+          for (const k of Object.keys(obj || {})) {
+            const sec = Number(k)
+            const arr = Array.isArray(obj[k]) ? obj[k] : []
+            out[sec] = arr.map(r => ({ symbol: r.symbol, changePct: Number(r.changePct || 0), minTs: Number(r.minTs || NaN), maxTs: Number(r.maxTs || NaN), current: Number(r.current || NaN) }))
           }
-        } catch {}
-      }
-    } catch {}
-    return () => { try { ws && ws.close() } catch {} }
-  }, [intervalSec, token])
-
-  return rows
+        } catch { void 0 }
+        if (alive) setRowsByWindow(out)
+      } catch { void 0 }
+      setNextRefreshTs(Date.now() + 60000)
+    }
+    if (initialDelayRef.current == null) initialDelayRef.current = Math.floor(Math.random() * 500)
+    setNextRefreshTs(Date.now() + initialDelayRef.current)
+    setTimeout(async () => { await load() }, initialDelayRef.current)
+    timerRef.current = setInterval(() => { load() }, 60000)
+    return () => { alive = false; if (timerRef.current) clearInterval(timerRef.current) }
+  }, [token])
+  return { rowsByWindow, nextRefreshTs }
 }
 
-function Section({ intervalSec, label, orderMode, token, onRefresh, selectedSymbol, onSelect }) {
-  const rows = useAgg(intervalSec, token, onRefresh)
-  const sorted = useMemo(() => {
-    const arr = rows.slice()
-    arr.sort((a,b) => {
-      const sa = orderMode === 'mixed' ? (upStreak(a.history) + upCount(a.history) - downCount(a.history) - downStreak(a.history)) : (
-        orderMode === 'upcount' ? upCount(a.history) : (
-        orderMode === 'downcount' ? downCount(a.history) : (
-        orderMode === 'downstreak' ? downStreak(a.history) : upStreak(a.history))))
-      const sb = orderMode === 'mixed' ? (upStreak(b.history) + upCount(b.history) - downCount(b.history) - downStreak(b.history)) : (
-        orderMode === 'upcount' ? upCount(b.history) : (
-        orderMode === 'downcount' ? downCount(b.history) : (
-        orderMode === 'downstreak' ? downStreak(b.history) : upStreak(b.history))))
-      if (sb !== sa) return sb - sa
-      const al = a.history.length ? Number(a.history[a.history.length-1].p) : NaN
-      const bl = b.history.length ? Number(b.history[b.history.length-1].p) : NaN
-      if (!Number.isNaN(al) && !Number.isNaN(bl) && bl !== al) return bl - al
-      return a.symbol.localeCompare(b.symbol)
+function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol, onSelectSymbol, ignoredSet, onRequestIgnore, checkedSet, onToggleChecked, showCheckedOnly, newBadgesSet, onToggleNewBadge, showNewOnly, showPercent = true }) {
+  const prevTopRef = useRef(new Set())
+  const [highlightSet, setHighlightSet] = useState(new Set())
+  const countsRef = useRef(new Map())
+  const [rankCounts, setRankCounts] = useState({})
+  const [noteText, setNoteText] = useState(() => {
+    try { return localStorage.getItem('note:'+String(windowSec)) || '' } catch { return '' }
+  })
+  const prevChangeRef = useRef(new Map())
+  const prevPriceRef = useRef(new Map())
+  const prevRanksRef = useRef(new Map())
+  const [rankUpSet, setRankUpSet] = useState(new Set())
+  const [remainSec, setRemainSec] = useState(0)
+  const pressTimerRef = useRef(null)
+  const didLongPressRef = useRef(false)
+  const [sortMode, setSortMode] = useState('change')
+  const [sortDir, setSortDir] = useState('desc')
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem('sort:'+String(windowSec))
+      if (t) {
+        const o = JSON.parse(t)
+        if (o && (o.mode==='count' || o.mode==='change')) setTimeout(() => { setSortMode(o.mode) }, 0)
+        if (o && (o.dir==='asc' || o.dir==='desc')) setTimeout(() => { setSortDir(o.dir) }, 0)
+      }
+    } catch { void 0 }
+  }, [windowSec])
+  useEffect(() => {
+    try { localStorage.setItem('sort:'+String(windowSec), JSON.stringify({ mode: sortMode, dir: sortDir })) } catch { void 0 }
+  }, [windowSec, sortMode, sortDir])
+  function handleRowClick(e, symbol) { if (didLongPressRef.current) { didLongPressRef.current = false; return } onSelectSymbol(symbol); onRowClick(e, symbol) }
+  function handlePairClick(e, symbol) { onSelectSymbol(symbol); onPairClick(e, symbol) }
+  function startPress(e, symbol) {
+    clearTimeout(pressTimerRef.current)
+    didLongPressRef.current = false
+    const btn = (e && typeof e.button === 'number') ? e.button : 0
+    pressTimerRef.current = setTimeout(() => {
+      didLongPressRef.current = true
+      if (btn === 2) {
+        onToggleNewBadge(symbol)
+      } else {
+        onRequestIgnore(symbol)
+      }
+    }, 600)
+  }
+  function endPress() { clearTimeout(pressTimerRef.current); pressTimerRef.current = null }
+  function toggleSort(mode) {
+    if (sortMode === mode) { setSortDir(d => d === 'desc' ? 'asc' : 'desc') } else { setSortMode(mode); setSortDir('desc') }
+  }
+  function metricVal(r) { return sortMode === 'count' ? Number((rankCounts && rankCounts[r.symbol]) || 0) : Number(r.changePct || 0) }
+  const displayedRows = (() => {
+    const filtered = rows.filter(rr => {
+      if (ignoredSet && ignoredSet.has(rr.symbol)) return false
+      if (showCheckedOnly && !(checkedSet && checkedSet.has(rr.symbol))) return false
+      if (showNewOnly && !(newBadgesSet && newBadgesSet.has(rr.symbol))) return false
+      return true
     })
-    return arr.slice(0,20)
-  }, [rows, orderMode])
-
+    const sorted = [...filtered].sort((a,b) => {
+      const va = metricVal(a)
+      const vb = metricVal(b)
+      return sortDir === 'desc' ? (vb - va) : (va - vb)
+    })
+    return sorted.slice(0,100)
+  })()
+  useEffect(() => {
+    try {
+      const topSymbols = rows.slice(0,100).map(r=>r.symbol)
+      const prevSet = prevTopRef.current || new Set()
+      let changed = false
+      if (prevSet.size !== topSymbols.length) changed = true
+      if (!changed) {
+        for (const s of topSymbols) { if (!prevSet.has(s)) { changed = true; break } }
+        if (!changed) {
+          for (const s of prevSet) { if (!topSymbols.includes(s)) { changed = true; break } }
+        }
+      }
+      if (changed) {
+        const ns = new Set()
+        for (const s of topSymbols) { if (!prevSet.has(s)) ns.add(s) }
+        setTimeout(() => { setHighlightSet(ns) }, 0)
+        prevTopRef.current = new Set(topSymbols)
+      }
+      const m = countsRef.current || new Map()
+      const prevMap = prevChangeRef.current || new Map()
+      const prevPriceMap = prevPriceRef.current || new Map()
+      const present = new Set()
+      for (const r of rows) {
+        const sym = r.symbol
+        present.add(sym)
+        const dir = (Number(r.minTs) < Number(r.maxTs)) ? 1 : ((Number(r.minTs) > Number(r.maxTs)) ? -1 : 0)
+        const curPrice = Number(r.current)
+        const prevPrice = prevPriceMap.has(sym) ? Number(prevPriceMap.get(sym)) : NaN
+        if (!Number.isNaN(prevPrice) && dir !== 0) {
+          const priceDiff = curPrice - prevPrice
+          const priceSign = priceDiff > 0 ? 1 : (priceDiff < 0 ? -1 : 0)
+          const streak = Number(m.get(sym) || 0)
+          const follows = (dir === priceSign)
+          m.set(sym, follows ? (streak + 1) : Math.max(streak - 1, 0))
+        } else if (!Number.isNaN(prevPrice) && dir === 0) {
+          const streak = Number(m.get(sym) || 0)
+          m.set(sym, Math.max(streak - 1, 0))
+        } else {
+          m.set(sym, 0)
+        }
+        prevMap.set(sym, Number(r.changePct || 0))
+        prevPriceMap.set(sym, curPrice)
+      }
+      for (const [sym] of Array.from(m.entries())) { if (!present.has(sym)) m.set(sym, 0) }
+      countsRef.current = m
+      prevChangeRef.current = prevMap
+      prevPriceRef.current = prevPriceMap
+      setTimeout(() => { try { setRankCounts(Object.fromEntries(m.entries())) } catch { void 0 } }, 0)
+    } catch { void 0 }
+  }, [rows])
+  useEffect(() => {
+    try {
+      const ordered = [...rows].sort((a,b) => Number(b.changePct||0) - Number(a.changePct||0))
+      const ranks = new Map(ordered.map((r,idx) => [r.symbol, idx]))
+      const prevRanks = prevRanksRef.current || new Map()
+      const up = new Set()
+      for (const [sym, rank] of ranks.entries()) {
+        if (prevRanks.has(sym)) {
+          const prev = Number(prevRanks.get(sym))
+          if (rank < prev) up.add(sym)
+        }
+      }
+      setTimeout(() => { setRankUpSet(up) }, 0)
+      prevRanksRef.current = ranks
+    } catch { void 0 }
+  }, [rows])
+  useEffect(() => {
+    try { localStorage.setItem('note:'+String(windowSec), String(noteText || '')) } catch { void 0 }
+  }, [windowSec, noteText])
+  useEffect(() => {
+    function update() {
+      if (nextRefreshTs != null) {
+        const s = Math.max(0, Math.ceil((nextRefreshTs - Date.now())/1000))
+        setRemainSec(s)
+      }
+    }
+    update()
+    const id = setInterval(update, 1000)
+    return () => clearInterval(id)
+  }, [nextRefreshTs])
   return (
-    <div className="section">
-      <div className="section-title">{label}</div>
-      <div className="layout">
-        <div className="left">
-          <table>
-            <thead>
-              <tr><th className="nowrap col-no">No</th><th className="nowrap col-pair">Pair</th>{orderMode==='upcount' && <th className="nowrap cell">Up-count</th>}{orderMode==='downcount' && <th className="nowrap cell">Down-count</th>}</tr>
-            </thead>
-            <tbody>
-              {sorted.map((r,i) => (
-                <tr key={r.symbol} className={'row ' + (selectedSymbol===r.symbol?'selected':'')} onClick={(e)=>{onRowClick(e,r.symbol); onSelect(r.symbol)}}><td className="num col-no">{i+1}</td><td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>onPairClick(e,r.symbol)}>{r.symbol.replace('_','/')}</td>{orderMode==='upcount' && <td className="num cell">{upCount(r.history)}</td>}{orderMode==='downcount' && <td className="num cell">{downCount(r.history)}</td>}</tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="right">
-          <div className="rightScroller">
-            <table>
-              <thead>
-                <tr>{[...Array(20)].map((_,i) => <th key={i} className="nowrap cell">{'p' + (20-i)}</th>)}</tr>
-              </thead>
-              <tbody>
-                {sorted.map(r => (
-                  <tr key={r.symbol} className={'row ' + (selectedSymbol===r.symbol?'selected':'')} onClick={(e)=>{onRowClick(e,r.symbol); onSelect(r.symbol)}}>
-                    {[...Array(20)].map((_,i) => {
-                      const idx = r.history.length - 1 - i
-                      const v = idx >= 0 ? r.history[idx] : null
-                      const prev = idx - 1 >= 0 ? r.history[idx-1] : null
-                      if (!(v && v.p != null)) return <td key={i} className="cell muted"></td>
-                      const cur = Number(v.p)
-                      const pn = prev && prev.p != null ? Number(prev.p) : null
-                      let c = 'muted', arrow = '→'
-                      if (pn != null && !Number.isNaN(pn)) {
-                        if (cur > pn) { c = 'pos'; arrow = '↑' } else if (cur < pn) { c = 'neg'; arrow = '↓' } else { c = 'muted'; arrow = '→' }
-                      }
-                      return <td key={i} className={'num cell ' + c}>{arrow} {cur.toLocaleString(undefined,{maximumFractionDigits:6})}</td>
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+    <div className="section" data-sec={windowSec} data-remain={remainSec}>
+      <div className="section-title">{label} <input className="rule-input" value={noteText} onChange={e=>setNoteText(e.target.value)} placeholder="Note" /></div>
+      <table>
+        <thead>
+          <tr>
+            <th className="nowrap"><div className="hdr"><span>#</span></div></th>
+            <th className="nowrap col-no"><div className="hdr"><span>No</span></div></th>
+            <th className="nowrap col-pair">Pair</th>
+            {showPercent ? <th className="nowrap cell"><div className="hdr"><span>%</span><button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></div></th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {displayedRows.map((r, i) => (
+            <tr key={r.symbol} className={'row ' + (selectedSymbol === r.symbol ? 'selected ' : '') + (highlightSet && highlightSet.has(r.symbol) ? 'new ' : '') + (rankUpSet && rankUpSet.has(r.symbol) ? 'up ' : '') + (checkedSet && checkedSet.has(r.symbol) ? 'checked ' : '')} onMouseDown={(e)=>startPress(e,r.symbol)} onMouseUp={endPress} onMouseLeave={endPress} onContextMenu={(e)=>{ e.preventDefault() }} onClick={(e)=>{ handleRowClick(e,r.symbol) } } onDoubleClick={(e)=>onRowDblClick(e,r.symbol)}>
+              <td className="num"><input type="checkbox" checked={Boolean(checkedSet && checkedSet.has(r.symbol))} onChange={()=>onToggleChecked(r.symbol)} onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} /></td>
+              <td className="num col-no">{i + 1}</td>
+              <td className="col-pair copyable" title="Click to copy; Ctrl+Click to open" onClick={(e)=>handlePairClick(e,r.symbol)}>
+                <div className="pair-cell">
+                  <span className="pair-label">{r.symbol.replace('_','/')}</span>
+                  {newBadgesSet && newBadgesSet.has(r.symbol) ? (
+                    <span className="badge-new badge-n" title="Following">
+                      <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                          <linearGradient id="followingGrad" x1="0" y1="0" x2="1" y2="1">
+                            <stop offset="0%" stopColor="#ff8f1f"/>
+                            <stop offset="50%" stopColor="#ffa733"/>
+                            <stop offset="100%" stopColor="#ffd34d"/>
+                          </linearGradient>
+                        </defs>
+                        <path d="M12 5a7 7 0 1 1-4.95 2.05" stroke="url(#followingGrad)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M8 7h3V4" stroke="url(#followingGrad)" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </span>
+                  ) : null}
+                </div>
+              </td>
+              {showPercent ? (() => {
+                const cls = (Number(r.minTs) < Number(r.maxTs)) ? 'pos' : (Number(r.minTs) > Number(r.maxTs) ? 'neg' : 'muted')
+                const cur = Number(r.changePct || 0)
+                return <td className={'num cell '+cls}>{cur.toFixed(2)}%</td>
+              })() : null}
+            </tr>
+          ))}
+          {displayedRows.length === 0 ? (
+            <tr>
+              <td colSpan={showPercent ? 4 : 3}>
+                <div className="small muted">No items match current filters</div>
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
     </div>
   )
 }
 
 export default function App() {
-  const [orderMode, setOrderMode] = useState('streak')
   const [token, setToken] = useState(() => {
     try { return localStorage.getItem('authToken') || null } catch { return null }
   })
-  const [pw, setPw] = useState('')
-  const [lastMap, setLastMap] = useState({})
   const [selectedSymbol, setSelectedSymbol] = useState(null)
-
-  function onRefresh(intervalSec, ts) {
-    setLastMap(prev => Object.assign({}, prev, { [intervalSec]: ts }))
+  const [pw, setPw] = useState('')
+  const [missions, setMissions] = useState(() => {
+    try {
+      const t = localStorage.getItem('missions')
+      const arr = t ? JSON.parse(t) : []
+      return Array.isArray(arr) ? arr.map(x => ({ unit: String(x.unit||''), total: String(x.total||''), earned: String(x.earned||''), status: ['achieved','current','not_achieved'].includes(String(x && x.status)) ? String(x.status) : 'current' })) : []
+    } catch { return [] }
+  })
+  const [ignoredTokens, setIgnoredTokens] = useState(() => {
+    try {
+      const t = localStorage.getItem('ignoredTokens')
+      const arr = t ? JSON.parse(t) : []
+      return Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : []
+    } catch { return [] }
+  })
+  const [rules, setRules] = useState(() => {
+    try {
+      const t = localStorage.getItem('rules')
+      return t ? JSON.parse(t) : []
+    } catch { return [] }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('rules', JSON.stringify(rules)) } catch { void 0 }
+  }, [rules])
+  useEffect(() => {
+    try { localStorage.setItem('missions', JSON.stringify(missions)) } catch { void 0 }
+  }, [missions])
+  useEffect(() => {
+    try { localStorage.setItem('ignoredTokens', JSON.stringify(ignoredTokens)) } catch { void 0 }
+  }, [ignoredTokens])
+  const [showRuleDlg, setShowRuleDlg] = useState(false)
+  const [showMissionDlg, setShowMissionDlg] = useState(false)
+  const [showIgnoredDlg, setShowIgnoredDlg] = useState(false)
+  const [showHelpDlg, setShowHelpDlg] = useState(false)
+  const [draftRules, setDraftRules] = useState([])
+  const [draftMissions, setDraftMissions] = useState([])
+  const [draftIgnored, setDraftIgnored] = useState([])
+  const [newRuleText, setNewRuleText] = useState('')
+  const [newMissionUnit, setNewMissionUnit] = useState('')
+  const [newMissionTotal, setNewMissionTotal] = useState('')
+  const [newMissionEarned, setNewMissionEarned] = useState('')
+  const [newIgnoredText, setNewIgnoredText] = useState('')
+  const [showConfirmIgnoreDlg, setShowConfirmIgnoreDlg] = useState(false)
+  const [confirmIgnoreSymbol, setConfirmIgnoreSymbol] = useState(null)
+  const [toastText, setToastText] = useState('')
+  const toastTimerRef = useRef(null)
+  const { rowsByWindow, nextRefreshTs } = useBatchMetrics(token)
+  const [progressItems, setProgressItems] = useState(() => {
+    try {
+      const t = localStorage.getItem('progressItems')
+      const arr = t ? JSON.parse(t) : []
+      return Array.isArray(arr) ? arr : []
+    } catch { return [] }
+  })
+  const [showProgressDlg, setShowProgressDlg] = useState(false)
+  const [draftProgress, setDraftProgress] = useState([])
+  const [dayInput, setDayInput] = useState('')
+  const [checkedTokens, setCheckedTokens] = useState(() => {
+    try {
+      const t = localStorage.getItem('checkedTokens')
+      const arr = t ? JSON.parse(t) : []
+      return new Set(Array.isArray(arr) ? arr.map(x => String(x)) : [])
+    } catch { return new Set() }
+  })
+  const [newBadges, setNewBadges] = useState(() => {
+    try {
+      const t = localStorage.getItem('newBadges')
+      const arr = t ? JSON.parse(t) : []
+      return new Set(Array.isArray(arr) ? arr.map(x => String(x)) : [])
+    } catch { return new Set() }
+  })
+  const [showCheckedOnly, setShowCheckedOnly] = useState(() => {
+    try { return localStorage.getItem('showCheckedOnly') === '1' } catch { return false }
+  })
+  const [showNewOnly, setShowNewOnly] = useState(() => {
+    try { return localStorage.getItem('showNewOnly') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('checkedTokens', JSON.stringify(Array.from((checkedTokens || new Set()).values()))) } catch { void 0 }
+  }, [checkedTokens])
+  useEffect(() => {
+    try { localStorage.setItem('newBadges', JSON.stringify(Array.from((newBadges || new Set()).values()))) } catch { void 0 }
+  }, [newBadges])
+  useEffect(() => {
+    try { localStorage.setItem('showCheckedOnly', showCheckedOnly ? '1' : '0') } catch { void 0 }
+  }, [showCheckedOnly])
+  useEffect(() => {
+    try { localStorage.setItem('showNewOnly', showNewOnly ? '1' : '0') } catch { void 0 }
+  }, [showNewOnly])
+  function toggleCheckedSymbol(sym) {
+    const s = String(sym)
+    setCheckedTokens(prev => {
+      const next = new Set(Array.from((prev || new Set()).values()))
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
   }
-
-  function fmtRemain(intervalSec) {
-    const last = lastMap[intervalSec] || Date.now()
-    const ms = intervalSec * 1000 - (Date.now() - last)
-    const s = Math.max(0, Math.floor(ms/1000))
-    if (intervalSec < 3600) {
-      const m = Math.floor(s/60), rs = s % 60
-      return (m ? m + 'm ' : '') + rs + 's'
+  function toggleNewBadge(sym) {
+    const s = String(sym)
+    setNewBadges(prev => {
+      const next = new Set(Array.from((prev || new Set()).values()))
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
+  }
+  function uncheckAll() {
+    if (confirm('Uncheck all checked items?')) {
+      setCheckedTokens(new Set())
     }
-    const h = Math.floor(s/3600), rm = Math.floor((s%3600)/60), rs = s % 60
-    return h + 'h ' + rm + 'm ' + rs + 's'
   }
+  useEffect(() => {
+    try { localStorage.setItem('progressItems', JSON.stringify(progressItems)) } catch { void 0 }
+  }, [progressItems])
+  function openRuleManager() {
+    setDraftRules(Array.isArray(rules) ? [...rules] : [])
+    setNewRuleText('')
+    setShowRuleDlg(true)
+  }
+  function openMissionManager() {
+    setDraftMissions(Array.isArray(missions) ? missions.map(m => ({ unit: String(m.unit||''), total: String(m.total||''), earned: String(m.earned||''), status: String(m.status||'current') })) : [])
+    setNewMissionUnit('')
+    setNewMissionTotal('')
+    setNewMissionEarned('')
+    setShowMissionDlg(true)
+  }
+  function openIgnoredManager() {
+    setDraftIgnored(Array.isArray(ignoredTokens) ? [...ignoredTokens] : [])
+    setNewIgnoredText('')
+    setShowIgnoredDlg(true)
+    setTimeout(async () => { try { await loadIgnoredTokensFromServer(); setDraftIgnored(Array.isArray(ignoredTokens) ? [...ignoredTokens] : []) } catch { void 0 } }, 0)
+  }
+  function openProgressManager() {
+    const base = Array.isArray(progressItems) && progressItems.length ? JSON.parse(JSON.stringify(progressItems)) : [{ name: 'Progress', days: [] }]
+    setDraftProgress(base)
+    setDayInput(todayStr())
+    setShowProgressDlg(true)
+  }
+  function closeRuleManager() {
+    setShowRuleDlg(false)
+  }
+  function closeMissionManager() {
+    setShowMissionDlg(false)
+  }
+  function closeIgnoredManager() {
+    setShowIgnoredDlg(false)
+  }
+  function openHelpDlg() { setShowHelpDlg(true) }
+  function closeHelpDlg() { setShowHelpDlg(false) }
+  function closeProgressManager() {
+    setShowProgressDlg(false)
+  }
+  function saveRuleManager() {
+    setRules(draftRules)
+    setShowRuleDlg(false)
+  }
+  function saveMissionManager() {
+    setMissions(draftMissions)
+    setShowMissionDlg(false)
+  }
+  function saveProgressManager() {
+    setProgressItems(draftProgress)
+    setShowProgressDlg(false)
+  }
+  function saveIgnoredManager() {
+    const uniq = Array.from(new Set(draftIgnored.filter(x => String(x).trim())))
+    setIgnoredTokens(uniq)
+    setShowIgnoredDlg(false)
+    try { uploadIgnoredTokens(uniq) } catch (e) { void e }
+  }
+  function updateDraftRule(i, text) {
+    setDraftRules(prev => prev.map((r, idx) => idx === i ? text : r))
+  }
+  function updateDraftMission(i, field, val) {
+    setDraftMissions(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: val } : r))
+  }
+  function setDraftMissionStatus(i, status) {
+    const st = ['achieved','current','not_achieved'].includes(String(status)) ? String(status) : 'current'
+    setDraftMissions(prev => prev.map((r, idx) => idx === i ? { ...r, status: st } : r))
+  }
+  function deleteDraftRule(i) {
+    setDraftRules(prev => prev.filter((_, idx) => idx !== i))
+  }
+  function deleteDraftMission(i) {
+    setDraftMissions(prev => prev.filter((_, idx) => idx !== i))
+  }
+  const editPrevRef = useRef(new Map())
+  function updateDraftIgnored(i, text) {
+    setDraftIgnored(prev => prev.map((r, idx) => idx === i ? String(text) : r))
+  }
+  async function commitDraftIgnored(i) {
+    try {
+      const prev = editPrevRef.current.get(i)
+      const next = String(draftIgnored[i] || '').trim()
+      if (!prev || !next || prev === next) return
+      const ok = await serverRenameIgnore(prev, next)
+      if (ok) {
+        setIgnoredTokens(list => Array.from(new Set(list.map(x => (String(x) === prev ? next : x)))))
+        showToast('Updated')
+      } else {
+        showToast('Update failed')
+      }
+    } catch { showToast('Update failed') }
+  }
+  async function deleteDraftIgnored(i) {
+    const sym = String(draftIgnored[i] || '')
+    setDraftIgnored(prev => prev.filter((_, idx) => idx !== i))
+    try {
+      const ok = await serverRemoveIgnore(sym)
+      if (ok) {
+        setIgnoredTokens(prev => prev.filter(x => String(x) !== sym))
+        showToast('Removed')
+      } else {
+        showToast('Remove failed')
+      }
+    } catch { showToast('Remove failed') }
+  }
+  function addDraftRule() {
+    const t = String(newRuleText || '').trim()
+    if (!t) return
+    setDraftRules(prev => [...prev, t])
+    setNewRuleText('')
+  }
+  function addDraftMission() {
+    const u = String(newMissionUnit || '').trim()
+    const t = String(newMissionTotal || '').trim()
+    const e = String(newMissionEarned || '').trim()
+    if (!u && !t && !e) return
+    setDraftMissions(prev => [...prev, { unit: u, total: t, earned: e, status: 'current' }])
+    setNewMissionUnit('')
+    setNewMissionTotal('')
+    setNewMissionEarned('')
+  }
+  async function addDraftIgnored() {
+    const t = String(newIgnoredText || '').trim()
+    if (!t) return
+    setDraftIgnored(prev => Array.from(new Set([...prev, t])))
+    setNewIgnoredText('')
+    try {
+      const ok = await serverAddIgnore(t)
+      if (ok) {
+        setIgnoredTokens(prev => Array.from(new Set([...prev, t])))
+        showToast('Added')
+      } else {
+        showToast('Add failed')
+      }
+    } catch { showToast('Add failed') }
+  }
+  function addDayToSelected(d) {
+    const val = String(d || '').trim()
+    if (!val) return
+    setDraftProgress(prev => prev.length > 0 ? [{ ...prev[0], days: [...(Array.isArray(prev[0].days) ? prev[0].days : []), { date: val, trades: [] }] }, ...prev.slice(1)] : [{ name: 'Progress', days: [{ date: val, trades: [] }] }])
+  }
+  function todayStr() { const d = new Date(); const m = String(d.getMonth()+1).padStart(2,'0'); const dd = String(d.getDate()).padStart(2,'0'); return String(d.getFullYear())+'-'+m+'-'+dd }
+  function deleteDay(dayIdx) {
+    setDraftProgress(prev => {
+      if (!prev.length) return prev
+      const days = Array.isArray(prev[0].days) ? prev[0].days.filter((_, j) => j !== dayIdx) : []
+      const first = { ...prev[0], days }
+      return [first, ...prev.slice(1)]
+    })
+  }
+  function addTrade(dayIdx, status) {
+    setDraftProgress(prev => {
+      if (!prev.length) return prev
+      const it = prev[0]
+      const days = Array.isArray(it.days) ? [...it.days] : []
+      const d = days[dayIdx]
+      if (!d) return prev
+      const trades = Array.isArray(d.trades) ? [...d.trades, { id: String(Date.now())+'-'+Math.random(), status }] : [{ id: String(Date.now())+'-'+Math.random(), status }]
+      days[dayIdx] = { ...d, trades }
+      const first = { ...it, days }
+      return [first, ...prev.slice(1)]
+    })
+  }
+  function deleteTrade(dayIdx, tradeId) {
+    setDraftProgress(prev => {
+      if (!prev.length) return prev
+      const it = prev[0]
+      const days = Array.isArray(it.days) ? [...it.days] : []
+      const d = days[dayIdx]
+      if (!d) return prev
+      const trades = Array.isArray(d.trades) ? d.trades.filter(t => String(t && t.id) !== String(tradeId)) : []
+      days[dayIdx] = { ...d, trades }
+      const first = { ...it, days }
+      return [first, ...prev.slice(1)]
+    })
+  }
+  function successRate(trades) {
+    const list = Array.isArray(trades) ? trades : []
+    const total = list.length
+    if (total <= 0) return 0
+    const ok = list.filter(t => String(t && t.status) === 'success').length
+    return Math.round((ok / total) * 100)
+  }
+  function todayStats() {
+    const d = (()=>{ const d = new Date(); const m = String(d.getMonth()+1).padStart(2,'0'); const dd = String(d.getDate()).padStart(2,'0'); return String(d.getFullYear())+'-'+m+'-'+dd })()
+    const days = Array.isArray(progressItems && progressItems[0] && progressItems[0].days) ? progressItems[0].days : []
+    const list = days.filter(x => String(x && x.date) === d)
+    const trades = list.flatMap(x => Array.isArray(x && x.trades) ? x.trades : [])
+    const total = trades.length
+    const success = trades.filter(t => String(t && t.status) === 'success').length
+    const pct = total > 0 ? Math.round((success / total) * 100) : 0
+    return { success, total, pct }
+  }
+  function totalStats() {
+    const days = Array.isArray(progressItems && progressItems[0] && progressItems[0].days) ? progressItems[0].days : []
+    const trades = days.flatMap(x => Array.isArray(x && x.trades) ? x.trades : [])
+    const total = trades.length
+    const success = trades.filter(t => String(t && t.status) === 'success').length
+    const pct = total > 0 ? Math.round((success / total) * 100) : 0
+    return { success, total, pct }
+  }
+  
+  async function uploadIgnoredTokens(list) {
+    try {
+      const headers = token ? { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type': 'application/json' }
+      const dedup = Array.from(new Set((Array.isArray(list) ? list : []).map(x => String(x).trim()).filter(Boolean)))
+      const res = await fetch('/api/ignored-tokens', { method: 'POST', headers, body: JSON.stringify({ tokens: dedup }) })
+      if (!res.ok) return false
+      return true
+    } catch { return false }
+  }
+  async function serverAddIgnore(sym) {
+    try {
+      console.log(sym)
+      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
+      const res = await fetch('/api/ignored-tokens/add', { method: 'POST', headers, body: JSON.stringify({ symbol: String(sym) }) })
+      console.log(res.status)
+      if (res.ok) return true
+      const status = res.status
+      if (status === 404 || status === 405) {
+        const next = Array.from(new Set([...(ignoredTokens || []), String(sym)]))
+        return await uploadIgnoredTokens(next)
+      }
+      return false
+    } catch { return false }
+  }
+  async function serverRemoveIgnore(sym) {
+    try {
+      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
+      const res = await fetch('/api/ignored-tokens/remove', { method: 'POST', headers, body: JSON.stringify({ symbol: String(sym) }) })
+      if (res.ok) return true
+      const status = res.status
+      if (status === 404 || status === 405) {
+        const next = Array.from((ignoredTokens || []).filter(x => String(x) !== String(sym)))
+        return await uploadIgnoredTokens(next)
+      }
+      return false
+    } catch { return false }
+  }
+  async function serverRenameIgnore(oldSym, nextSym) {
+    try {
+      const headers = token ? { 'Content-Type':'application/json', Authorization: 'Bearer ' + token } : { 'Content-Type':'application/json' }
+      const res = await fetch('/api/ignored-tokens/rename', { method: 'POST', headers, body: JSON.stringify({ old: String(oldSym), next: String(nextSym) }) })
+      if (res.ok) return true
+      const status = res.status
+      if (status === 404 || status === 405) {
+        const next = Array.from(new Set((ignoredTokens || []).map(x => (String(x) === String(oldSym) ? String(nextSym) : String(x)))))
+        return await uploadIgnoredTokens(next)
+      }
+      return false
+    } catch { return false }
+  }
+  async function loadIgnoredTokensFromServer() {
+    try {
+      const headers = token ? { Authorization: 'Bearer ' + token } : {}
+      const res = await fetch('/api/ignored-tokens', { method: 'GET', headers })
+      if (!res.ok) return false
+      const data = await res.json()
+      const serverList = Array.from(new Set((Array.isArray(data && data.tokens) ? data.tokens : []).map(x => String(x)).filter(Boolean)))
+      setIgnoredTokens(serverList)
+      return true
+    } catch { return false }
+  }
+  function requestIgnoreToken(symbol) {
+    setConfirmIgnoreSymbol(String(symbol))
+    setShowConfirmIgnoreDlg(true)
+  }
+  async function confirmIgnoreNow() {
+    if (confirmIgnoreSymbol) {
+      try {
+        const ok = await serverAddIgnore(String(confirmIgnoreSymbol))
+        if (!ok) {
+          showToast('Unlock required')
+        }
+        if (ok) {
+          setIgnoredTokens(prev => Array.from(new Set([...prev, String(confirmIgnoreSymbol)])))
+          await loadIgnoredTokensFromServer()
+        }
+      } catch { void 0 }
+    }
+    setShowConfirmIgnoreDlg(false)
+    setConfirmIgnoreSymbol(null)
+    try { showToast('Ignored ' + String(confirmIgnoreSymbol || '')) } catch { void 0 }
+  }
+  function cancelIgnoreNow() {
+    setShowConfirmIgnoreDlg(false)
+    setConfirmIgnoreSymbol(null)
+  }
+  function showToast(msg) {
+    clearTimeout(toastTimerRef.current)
+    setToastText(String(msg || ''))
+    toastTimerRef.current = setTimeout(() => { setToastText('') }, 2400)
+  }
+  async function syncIgnoredNow() {
+    try {
+      await uploadIgnoredTokens(ignoredTokens)
+      await loadIgnoredTokensFromServer()
+      showToast('Synced ignored list')
+    } catch {
+      showToast('Sync failed')
+    }
+  }
+  useEffect(() => {
+    if (token) {
+      try {
+        setTimeout(async () => {
+          try {
+            const headers = { Authorization: 'Bearer ' + token }
+            const res = await fetch('/api/ignored-tokens', { method: 'GET', headers })
+            if (!res.ok) return
+            const data = await res.json()
+            const serverList = Array.from(new Set((Array.isArray(data && data.tokens) ? data.tokens : []).map(x => String(x)).filter(Boolean)))
+            setIgnoredTokens(serverList)
+          } catch { void 0 }
+        }, 0)
+      } catch { void 0 }
+    }
+  }, [token])
+  
+
+  
 
   async function submitLogin() {
     try {
@@ -244,9 +741,13 @@ export default function App() {
       if (!res.ok) return
       const data = await res.json()
       const tok = data && data.token
-      if (tok) { try { localStorage.setItem('authToken', tok) } catch {}; setToken(tok) }
-    } catch {}
+      if (tok) { try { localStorage.setItem('authToken', tok) } catch { void 0 }; setToken(tok) }
+    } catch { void 0 }
   }
+
+  
+
+  
 
   return (
     <div className="container">
@@ -256,19 +757,228 @@ export default function App() {
             <div className="small muted">Enter password to unlock</div>
             <input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="Password" style={{padding:'8px 10px',borderRadius:8,border:'1px solid #2a3140',background:'#141821',color:'#e6e6e6',outline:'none'}} />
             <button onClick={submitLogin} style={{padding:'8px 10px',borderRadius:8,border:'1px solid #2a3140',background:'#17c964',color:'#0f1115',cursor:'pointer'}}>Unlock</button>
+            <div className="small muted">401 errors mean you need to unlock.</div>
           </div>
         </div>
       )}
       <header className="sticky-wrap">
         <div className="toolbar">
-          <div className="brand">MEXC Future Mini Tickers</div>
-          {['streak','upcount','downstreak','downcount','mixed'].map(m => (
-            <button key={m} className={'seg-option' + (orderMode===m?' active':'')} onClick={() => setOrderMode(m)}>{m==='streak'?'Up-streak':m==='downstreak'?'Down-streak':m==='upcount'?'Up-count':m==='downcount'?'Down-count':'Mixed'}</button>
-          ))}
+          <div className="brand"><span style={{display:'inline-flex',alignItems:'center',gap:6}}><svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" rx="4" fill="#0f1115"/><path d="M4 16l5-5 4 3 7-7" stroke="#17c964" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg> Keep Rules for Success!</span></div>
+          
+          <div className="rule-bar">
+            {rules.map((r,i) => (
+              <>
+                <span key={i} className={('rule-chip ' + (/!/.test(String(r)) ? 'warn' : ''))}><span className="text nowrap">{r}</span></span>
+                {i < rules.length - 1 ? <span className="rule-sep" /> : null}
+              </>
+            ))}
+          </div>
+          <div className="mission-bar">
+            {missions.map((m,i) => (
+              <React.Fragment key={i}>
+                <span className={'mission-chip ' + String(m && m.status || 'current')}><span className="icon">{String(m && m.status)==='achieved' ? '✓' : (String(m && m.status)==='current' ? '•' : '✗')}</span><span className="text nowrap">M{i+1} - {(() => { const e = parseFloat(m.earned||0); const t = parseFloat(m.total||0); const p = t===0 ? 0 : (e/t)*100; return parseFloat(p.toFixed(2)) + '%' })()}</span></span>
+                {i < missions.length - 1 ? <span className="rule-sep" /> : null}
+              </React.Fragment>
+            ))}
+          </div>
+          
+          <div className="timers" style={{display:'inline-flex',flexDirection:'column',alignItems:'flex-start',gap:6,marginLeft:12}}>
+            {(() => { const s = todayStats(); return (
+              <div style={{display:'grid',gridTemplateColumns:'48px 140px auto',alignItems:'center',gap:8}}>
+                <span className="small muted">Today</span>
+                <div className="progress-bar"><div className="progress-fill" style={{width:String(s.pct)+'%'}}></div></div>
+                <span className="muted">{String(s.success)}/{String(s.total)}</span>
+              </div>
+            ) })()}
+            {(() => { const t = totalStats(); return (
+              <div style={{display:'grid',gridTemplateColumns:'48px 140px auto',alignItems:'center',gap:8}}>
+                <span className="small muted">Total</span>
+                <div className="progress-bar"><div className="progress-fill" style={{width:String(t.pct)+'%'}}></div></div>
+                <span className="muted">{String(t.success)}/{String(t.total)}</span>
+              </div>
+            ) })()}
+          </div>
+          <button className={'seg-option '+(showCheckedOnly?'active':'')} onClick={()=>setShowCheckedOnly(v=>!v)} title="Show Checked Only">Checked</button>
+          <button className={'seg-option '+(showNewOnly?'active':'')} onClick={()=>setShowNewOnly(v=>!v)} title="Show Following Only">Following</button>
+          <button className={'seg-option'} onClick={uncheckAll} title="Uncheck all">Uncheck All</button>
+          <div className="toolbar-spacer" />
+          <button className={'seg-option'} onClick={openRuleManager} title="Manage Rules"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 6h16M4 12h16M4 18h16" stroke="#e6e6e6" strokeWidth="2" fill="none" strokeLinecap="round"/></svg></button>
+          <button className={'seg-option'} onClick={openMissionManager} title="Manage Missions"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6 4v16" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/><path d="M6 4h11l-4 3 4 3H6" fill="#e6e6e6"/></svg></button>
+          <button className={'seg-option'} onClick={openIgnoredManager} title="Manage Ignored"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="#e6e6e6" strokeWidth="2" fill="none"/><path d="M5 5l14 14" stroke="#e6e6e6" strokeWidth="2" strokeLinecap="round"/></svg></button>
+          <button className={'seg-option'} onClick={openProgressManager} title="Manage Progress"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="6" width="4" height="12" fill="#e6e6e6"/><rect x="10" y="10" width="4" height="8" fill="#e6e6e6"/><rect x="16" y="13" width="4" height="5" fill="#e6e6e6"/></svg></button>
+          <button className={'seg-option'} onClick={openHelpDlg} title="Help"><svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="#e6e6e6" strokeWidth="2" fill="none"/><text x="12" y="16" textAnchor="middle" fontSize="12" fill="#e6e6e6">?</text></svg></button>
         </div>
       </header>
+      {showRuleDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:380,maxWidth:700,width:'60%'}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Manage Rules</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'50vh',overflow:'auto'}}>
+              {draftRules.map((r,i) => (
+                <div key={i} style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <input className="rule-input" value={r} onChange={e=>updateDraftRule(i, e.target.value)} placeholder="Rule (add ! to mark warning)" />
+                  <button className="seg-option" onClick={()=>deleteDraftRule(i)}>Delete</button>
+                </div>
+              ))}
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input className="rule-input" placeholder="New rule" value={newRuleText} onChange={e=>setNewRuleText(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter') addDraftRule() }} />
+                <button className="seg-option" onClick={addDraftRule}>Add</button>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option" onClick={closeRuleManager}>Cancel</button>
+              <button className="seg-option active" onClick={saveRuleManager}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showHelpDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:520,maxWidth:800,width:'70%'}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Help</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:'60vh',overflow:'auto'}}>
+              <div className="small">Toolbar shows Today and Total status. Checked filters marked tokens. Following filter tokens with a badge.</div>
+              <div className="small">Long-press left on a row to ignore a token. Long-press right to toggle B badge.</div>
+              <div className="small">Click a pair to copy. Ctrl+Click opens the futures page.</div>
+              <div className="small">Sort by Count or Change using the ▲/▼ buttons in the header.</div>
+              <div className="small">Enter notes per window in the Note field beside each section title.</div>
+              <div className="small">Manage Rules, Missions, Ignored tokens, and Daily Progress from the buttons on the right.</div>
+              <div className="small">In Progress manager, add days, add success/failed trades, and view daily percentages. Today/Total bars reflect saved data.</div>
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option active" onClick={closeHelpDlg}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showProgressDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:520,maxWidth:700,width:'60%'}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Manage Daily Trading Progress</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10,maxHeight:'60vh',overflow:'auto'}}>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input type="date" className="rule-input" value={dayInput} onChange={e=>setDayInput(e.target.value)} />
+                <button className="seg-option" onClick={()=>setDayInput(todayStr())}>Today</button>
+                <button className="seg-option active" onClick={()=>addDayToSelected(dayInput)}>Add Day</button>
+              </div>
+              {(draftProgress[0] && draftProgress[0].days ? draftProgress[0].days : []).map((d,di) => {
+                const pct = successRate(d && d.trades)
+                return (
+                  <div key={di} style={{border:'1px solid #2a3140',borderRadius:8,padding:10,background:'#141821'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                      <div>{String(d && d.date || '')}</div>
+                      <button className="seg-option" onClick={()=>deleteDay(di)}>Delete</button>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                      <div className="progress-bar"><div className="progress-fill" style={{width:String(pct)+'%'}}></div></div>
+                      <div className="small muted">{pct}%</div>
+                    </div>
+                    <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginBottom:8}}>
+                      {Array.isArray(d && d.trades) ? d.trades.map(t => (
+                        <span key={String(t && t.id)} className={'mission-chip '+(String(t && t.status)==='success'?'achieved':'not_achieved')} title={String(t && t.status)} onClick={()=>deleteTrade(di, String(t && t.id))}>{String(t && t.status)==='success'?'✓':'✗'}</span>
+                      )) : null}
+                    </div>
+                    <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                      <button className="seg-option" onClick={()=>addTrade(di, 'success')}>Add Success</button>
+                      <button className="seg-option" onClick={()=>addTrade(di, 'failed')}>Add Failed</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option" onClick={closeProgressManager}>Cancel</button>
+              <button className="seg-option active" onClick={saveProgressManager}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {showMissionDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:380,maxWidth:700,width:'60%'}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Manage Missions</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'50vh',overflow:'auto'}}>
+              {draftMissions.map((r,i) => (
+                <div key={i} style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <span style={{minWidth:30,textAlign:'right'}}>M{i+1}</span>
+                  <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} value={String(r && r.unit || '')} onChange={e=>updateDraftMission(i, 'unit', e.target.value)} placeholder="Unit" />
+                  <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} value={String(r && r.total || '')} onChange={e=>updateDraftMission(i, 'total', e.target.value)} placeholder="Total" />
+                  <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} value={String(r && r.earned || '')} onChange={e=>updateDraftMission(i, 'earned', e.target.value)} placeholder="Earned" />
+                  <div className="mission-status">
+                    <button className={'mission-btn achieved '+ (String(r && r.status)==='achieved' ? 'active' : '')} onClick={()=>setDraftMissionStatus(i,'achieved')}>Achieved</button>
+                    <button className={'mission-btn current '+ (String(r && r.status)==='current' ? 'active' : '')} onClick={()=>setDraftMissionStatus(i,'current')}>Current</button>
+                    <button className={'mission-btn not_achieved '+ (String(r && r.status)==='not_achieved' ? 'active' : '')} onClick={()=>setDraftMissionStatus(i,'not_achieved')}>Non-achieved</button>
+                  </div>
+                  <button className="seg-option" onClick={()=>deleteDraftMission(i)}>Delete</button>
+                </div>
+              ))}
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <span style={{minWidth:30,textAlign:'right'}}>New</span>
+                <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} placeholder="Unit" value={newMissionUnit} onChange={e=>setNewMissionUnit(e.target.value)} />
+                <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} placeholder="Total" value={newMissionTotal} onChange={e=>setNewMissionTotal(e.target.value)} />
+                <input className="rule-input" style={{marginLeft:0,width:80,minWidth:0}} placeholder="Earned" value={newMissionEarned} onChange={e=>setNewMissionEarned(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter') addDraftMission() }} />
+                <button className="seg-option" onClick={addDraftMission}>Add</button>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option" onClick={closeMissionManager}>Cancel</button>
+              <button className="seg-option active" onClick={saveMissionManager}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showIgnoredDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:380,maxWidth:700,width:'60%'}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Manage Ignored Tokens</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:'50vh',overflow:'auto'}}>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input className="rule-input" placeholder="New symbol" value={newIgnoredText} onChange={e=>setNewIgnoredText(e.target.value)} onKeyDown={e=>{ if (e.key==='Enter') addDraftIgnored() }} />
+                <button className="seg-option" onClick={addDraftIgnored}>Add</button>
+              </div>
+              {draftIgnored.map((r,i) => (
+                <div key={i} style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <input className="rule-input" value={String(r || '')} onFocus={()=>{ editPrevRef.current.set(i, String(r || '')) }} onBlur={()=>commitDraftIgnored(i)} onChange={e=>updateDraftIgnored(i, e.target.value)} placeholder="Symbol (e.g., BTC_USDT)" />
+                  <button className="seg-option" onClick={()=>deleteDraftIgnored(i)}>Delete</button>
+                </div>
+              ))}
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option" onClick={closeIgnoredManager}>Cancel</button>
+              <button className="seg-option" onClick={syncIgnoredNow}>Sync</button>
+              <button className="seg-option active" onClick={saveIgnoredManager}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showConfirmIgnoreDlg && (
+        <div style={{position:'fixed',inset:0,background:'#0f1115cc',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+          <div style={{background:'#171b24',border:'1px solid #2a3140',borderRadius:12,padding:20,minWidth:320}}>
+            <div style={{fontWeight:600,marginBottom:8}}>Ignore Token</div>
+            <div className="small">Add <span className="text nowrap">{String(confirmIgnoreSymbol || '')}</span> to ignored list?</div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+              <button className="seg-option" onClick={cancelIgnoreNow}>Cancel</button>
+              <button className="seg-option active" onClick={confirmIgnoreNow}>Ignore</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {toastText && (
+        <div style={{position:'fixed',right:16,bottom:16,zIndex:9999}}>
+          <div className="toast">{toastText}</div>
+        </div>
+      )}
       <div className="sections-grid">
-        {intervals.map(it => <Section key={it.id} intervalSec={it.sec} label={it.label} orderMode={orderMode} token={token} onRefresh={onRefresh} selectedSymbol={selectedSymbol} onSelect={setSelectedSymbol} />)}
+        {windows.map(it => <MetricsSection key={it.id} windowSec={it.sec} label={it.label} rows={(rowsByWindow[it.sec] || [])} nextRefreshTs={nextRefreshTs} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} ignoredSet={new Set(ignoredTokens)} onRequestIgnore={requestIgnoreToken} checkedSet={checkedTokens} onToggleChecked={toggleCheckedSymbol} showCheckedOnly={showCheckedOnly} newBadgesSet={newBadges} onToggleNewBadge={toggleNewBadge} showNewOnly={showNewOnly} />)}
+        {(() => {
+          const baseSec = 3600
+          const list = Array.isArray(rowsByWindow[baseSec]) ? rowsByWindow[baseSec] : []
+          const map = new Map(list.map(r => [r.symbol, r]))
+          const followed = Array.from((newBadges || new Set()).values())
+          const merged = followed.map(sym => map.get(sym) || ({ symbol: sym, changePct: 0, minTs: NaN, maxTs: NaN, current: NaN }))
+          return <MetricsSection key="following" windowSec={baseSec} label="Following" rows={merged} nextRefreshTs={nextRefreshTs} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} ignoredSet={new Set(ignoredTokens)} onRequestIgnore={requestIgnoreToken} checkedSet={checkedTokens} onToggleChecked={toggleCheckedSymbol} showCheckedOnly={false} newBadgesSet={newBadges} onToggleNewBadge={toggleNewBadge} showNewOnly={false} showPercent={false} />
+        })()}
       </div>
     </div>
   )
