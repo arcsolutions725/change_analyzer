@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react'
 import './index.css'
 
 const windows = [
-  { id: 'w5m', label: '5m', sec: 300 },
   { id: 'w1h', label: '1h', sec: 3600 },
   { id: 'w4h', label: '4h', sec: 14400 },
   { id: 'w1d', label: '1d', sec: 86400 },
@@ -97,7 +96,7 @@ function useBatchMetrics(token) {
   return { rowsByWindow, nextRefreshTs }
 }
 
-function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol, onSelectSymbol, ignoredSet, onRequestIgnore, checkedSet, onToggleChecked, showCheckedOnly, newBadgesSet, onToggleNewBadge, showNewOnly }) {
+function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol, onSelectSymbol, ignoredSet, onRequestIgnore, checkedSet, onToggleChecked, showCheckedOnly, newBadgesSet, onToggleNewBadge, showNewOnly, showPercent = true }) {
   const prevTopRef = useRef(new Set())
   const [highlightSet, setHighlightSet] = useState(new Set())
   const countsRef = useRef(new Map())
@@ -250,7 +249,7 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
             <th className="nowrap"><div className="hdr"><span>#</span></div></th>
             <th className="nowrap col-no"><div className="hdr"><span>No</span></div></th>
             <th className="nowrap col-pair">Pair</th>
-            <th className="nowrap cell"><div className="hdr"><span>%</span><button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></div></th>
+            {showPercent ? <th className="nowrap cell"><div className="hdr"><span>%</span><button className={'hdr-btn ' + (sortMode==='change' ? 'active' : '')} onClick={()=>toggleSort('change')}>{sortMode==='change' && sortDir==='desc' ? '▼' : '▲'}</button></div></th> : null}
           </tr>
         </thead>
         <tbody>
@@ -278,20 +277,16 @@ function MetricsSection({ windowSec, label, rows, nextRefreshTs, selectedSymbol,
                   ) : null}
                 </div>
               </td>
-              {(() => {
+              {showPercent ? (() => {
                 const cls = (Number(r.minTs) < Number(r.maxTs)) ? 'pos' : (Number(r.minTs) > Number(r.maxTs) ? 'neg' : 'muted')
                 const cur = Number(r.changePct || 0)
-                return (
-                  <>
-                    <td className={'num cell '+cls}>{cur.toFixed(2)}%</td>
-                  </>
-                )
-              })()}
+                return <td className={'num cell '+cls}>{cur.toFixed(2)}%</td>
+              })() : null}
             </tr>
           ))}
           {displayedRows.length === 0 ? (
             <tr>
-              <td colSpan={4}>
+              <td colSpan={showPercent ? 4 : 3}>
                 <div className="small muted">No items match current filters</div>
               </td>
             </tr>
@@ -976,6 +971,14 @@ export default function App() {
       )}
       <div className="sections-grid">
         {windows.map(it => <MetricsSection key={it.id} windowSec={it.sec} label={it.label} rows={(rowsByWindow[it.sec] || [])} nextRefreshTs={nextRefreshTs} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} ignoredSet={new Set(ignoredTokens)} onRequestIgnore={requestIgnoreToken} checkedSet={checkedTokens} onToggleChecked={toggleCheckedSymbol} showCheckedOnly={showCheckedOnly} newBadgesSet={newBadges} onToggleNewBadge={toggleNewBadge} showNewOnly={showNewOnly} />)}
+        {(() => {
+          const baseSec = 3600
+          const list = Array.isArray(rowsByWindow[baseSec]) ? rowsByWindow[baseSec] : []
+          const map = new Map(list.map(r => [r.symbol, r]))
+          const followed = Array.from((newBadges || new Set()).values())
+          const merged = followed.map(sym => map.get(sym) || ({ symbol: sym, changePct: 0, minTs: NaN, maxTs: NaN, current: NaN }))
+          return <MetricsSection key="following" windowSec={baseSec} label="Following" rows={merged} nextRefreshTs={nextRefreshTs} selectedSymbol={selectedSymbol} onSelectSymbol={setSelectedSymbol} ignoredSet={new Set(ignoredTokens)} onRequestIgnore={requestIgnoreToken} checkedSet={checkedTokens} onToggleChecked={toggleCheckedSymbol} showCheckedOnly={false} newBadgesSet={newBadges} onToggleNewBadge={toggleNewBadge} showNewOnly={false} showPercent={false} />
+        })()}
       </div>
     </div>
   )
